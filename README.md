@@ -8,11 +8,14 @@ This is a Java 21+ project, packaged as a single self-contained JAR.
 
 - **Java 21** or later
 - **Maven 3.9+** (for building from source)
-- A valid `auth.json` file — run `npx @openai/codex login` to create one
+- A valid `auth.json` file (if you don't have one run `npx @openai/codex login` to create it in ~/.codex)
 
 ## Quick Start
 
-### Build
+### Download from Github releases
+https://github.com/skanga/AIProxyOauth/releases
+or
+### Build manually
 
 ```bash
 mvn clean package -DskipTests
