@@ -1,0 +1,13 @@
+The workflow will:
+
+1. Trigger when you push a tag matching v* (e.g. v1.0.0)
+2. Build the fat JAR with Maven on JDK 21
+3. Create a GitHub Release with auto-generated release notes and the fat JAR attached
+
+To publish a release:
+
+git tag v1.0.0
+git push origin v1.0.0
+
+The JAR filename is derived from the tag — tag v1.0.0 expects AIProxyOauth-1.0.0.jar which matches your pom.xml
+version. If you bump the version in pom.xml, use the matching tag.
