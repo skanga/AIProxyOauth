@@ -22,7 +22,7 @@ class ModelResolverTest {
 
     /** All model-list tests use this to bypass version resolution via subprocess/HTTP. */
     private ModelResolver resolverWithVersion(List<String> configuredModels) {
-        return new ModelResolver(client, configuredModels, "0.115.0");
+        return new ModelResolver(client, configuredModels, "0.121.0");
     }
 
     @SuppressWarnings("unchecked")
@@ -86,13 +86,10 @@ class ModelResolverTest {
         when(httpClient.send(any(), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenReturn(resp);
         when(client.getHttpClient()).thenReturn(httpClient);
 
-        ModelResolver resolver = new ModelResolver(client, null, null);
-        // We can't easily mock local codex --version without a lot of ceremony,
-        // but it will likely fail in a test environment, falling through to remote.
+        ModelResolver resolver = new ModelResolver(client, null, null, command -> null);
         String version = resolver.resolveCodexClientVersion();
         
-        // If local fails, it should be 1.2.3 from our mock or fallback
-        assertTrue(version.equals("1.2.3") || version.equals("0.115.0"));
+        assertEquals("1.2.3", version);
     }
 
     @Test void resolveCodexClientVersion_fallback_onFailure() throws Exception {
@@ -100,8 +97,27 @@ class ModelResolverTest {
         when(httpClient.send(any(), ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenThrow(new RuntimeException("network error"));
         when(client.getHttpClient()).thenReturn(httpClient);
 
-        ModelResolver resolver = new ModelResolver(client, null, null);
-        assertEquals("0.115.0", resolver.resolveCodexClientVersion());
+        ModelResolver resolver = new ModelResolver(client, null, null, command -> null);
+        assertEquals("0.121.0", resolver.resolveCodexClientVersion());
+    }
+
+    @Test void resolveCodexClientVersion_windowsCommandCandidate_success() {
+        ModelResolver resolver = new ModelResolver(client, null, null, command -> {
+            if (command.equals(List.of("cmd.exe", "/c", "codex.cmd", "--version"))) {
+                return "codex-cli 0.121.0";
+            }
+            return null;
+        });
+
+        assertEquals("0.121.0", resolver.resolveCodexClientVersion());
+        verifyNoInteractions(client);
+    }
+
+    @Test void localCodexVersionCommands_windowsPrefersCmdShim() {
+        List<List<String>> commands = ModelResolver.localCodexVersionCommands(true);
+
+        assertEquals(List.of("cmd.exe", "/c", "codex.cmd", "--version"), commands.getFirst());
+        assertTrue(commands.contains(List.of("codex", "--version")));
     }
 
     // --- extractUpstreamError (via resolveModels on non-2xx) ---

@@ -8,6 +8,11 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
+import java.util.concurrent.atomic.AtomicReference;
+
+import com.sun.net.httpserver.HttpServer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -162,14 +167,17 @@ class AIProxyOauthTest {
     }
 
     @Test
-    void testPrintStartupBanner() {
+    void testPrintStartupBanner(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
         AIProxyOauth app = new AIProxyOauth();
         StringWriter sw = new StringWriter();
         CommandLine cmd = new CommandLine(app);
         cmd.setOut(new PrintWriter(sw));
+
+        java.nio.file.Path authFile = tempDir.resolve("auth.json");
+        java.nio.file.Files.writeString(authFile, "{}");
         
         com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
-                "127.0.0.1", 10531, null, null, "http://base", null, null, null, "", false, java.util.Map.of("k1", "u1"), "adm"
+                "127.0.0.1", 10531, null, null, "http://base", null, null, authFile.toString(), "", false, java.util.Map.of("k1", "u1"), "adm"
         );
         
         app.printStartupBanner(config, java.util.List.of("gpt-4"));
@@ -177,8 +185,251 @@ class AIProxyOauthTest {
         String output = sw.toString();
         assertTrue(output.contains("Endpoint: http://127.0.0.1:10531/v1"));
         assertTrue(output.contains("Models:   gpt-4"));
+        assertTrue(output.contains("Client API key enforcement: enabled"));
+        assertTrue(output.contains("Network access: Local access only"));
+        assertTrue(output.contains("Auth file: " + authFile));
         assertTrue(output.contains("Keys:     1 key(s) configured (u1)"));
         assertTrue(output.contains("Admin:    key configured"));
+    }
+
+    @Test
+    void testPrintStartupBannerShowsOpenModeAndFullNetworkAccess(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        StringWriter sw = new StringWriter();
+        CommandLine cmd = new CommandLine(app);
+        cmd.setOut(new PrintWriter(sw));
+
+        java.nio.file.Path authFile = tempDir.resolve("auth.json");
+        java.nio.file.Files.writeString(authFile, "{}");
+
+        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
+                "0.0.0.0", 10531, null, null, "http://base", null, null, authFile.toString(), "", false, java.util.Map.of(), null
+        );
+
+        app.printStartupBanner(config, java.util.List.of());
+
+        String output = sw.toString();
+        assertTrue(output.contains("Client API key enforcement: disabled"));
+        assertTrue(output.contains("Network access: Full network access"));
+        assertTrue(output.contains("Auth file: " + authFile));
+    }
+
+    @Test
+    void testPrintStartupBannerShowsStartupProbeResponse(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        StringWriter sw = new StringWriter();
+        CommandLine cmd = new CommandLine(app);
+        cmd.setOut(new PrintWriter(sw));
+
+        java.nio.file.Path authFile = tempDir.resolve("auth.json");
+        java.nio.file.Files.writeString(authFile, "{}");
+
+        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
+                "127.0.0.1", 10531, null, null, "http://base", null, null, authFile.toString(), "", false, java.util.Map.of(), null
+        );
+
+        app.printStartupBanner(
+                config,
+                java.util.List.of("gpt-4"),
+                authFile.toString(),
+                false,
+                new AIProxyOauth.StartupProbeResult(true, 200, "HTTP 200", "Hello from startup probe", "gpt-4")
+        );
+
+        String output = sw.toString();
+        assertTrue(output.contains("Startup check: chat completion OK (model: gpt-4)"));
+        assertTrue(output.contains("Startup response: Hello from startup probe"));
+    }
+
+    @Test
+    void testStartupProbePostsChatCompletionThroughProxy() throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        AtomicReference<String> method = new AtomicReference<>();
+        AtomicReference<String> path = new AtomicReference<>();
+        AtomicReference<String> contentType = new AtomicReference<>();
+        AtomicReference<String> body = new AtomicReference<>();
+
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            method.set(exchange.getRequestMethod());
+            path.set(exchange.getRequestURI().getPath());
+            contentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
+            body.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            byte[] response = """
+                    data: {"id":"chatcmpl_test","object":"chat.completion.chunk","choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}
+
+                    data: {"id":"chatcmpl_test","object":"chat.completion.chunk","choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}
+
+                    data: {"id":"chatcmpl_test","object":"chat.completion.chunk","choices":[{"delta":{"content":" from proxy"},"finish_reason":null}]}
+
+                    data: [DONE]
+
+                    """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try (HttpClient httpClient = HttpClient.newHttpClient()) {
+            int port = server.getAddress().getPort();
+            com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
+                    "127.0.0.1", port, null, null, "http://base", null, null, null, "", false, java.util.Map.of(), null
+            );
+
+            AIProxyOauth.StartupProbeResult result =
+                    app.verifyChatCompletionThroughProxy(config, java.util.List.of("gpt-5.2"), null, httpClient);
+
+            assertTrue(result.success(), result.message());
+            assertEquals(200, result.statusCode());
+            assertEquals("Hello from proxy", result.responseText());
+            assertEquals("POST", method.get());
+            assertEquals("/v1/chat/completions", path.get());
+            assertEquals("application/json", contentType.get());
+            assertTrue(body.get().contains("\"model\":\"gpt-5.2\""), "Body was: " + body.get());
+            assertTrue(body.get().contains("\"role\":\"user\""), "Body was: " + body.get());
+            assertTrue(body.get().contains("\"content\":\"Hello!\""), "Body was: " + body.get());
+            assertTrue(body.get().contains("\"stream\":true"), "Body was: " + body.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void testStartupProbeReportsNullAssistantContent() throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            byte[] response = """
+                    data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}
+
+                    data: {"choices":[{"delta":{},"finish_reason":"stop"}]}
+
+                    data: [DONE]
+
+                    """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try (HttpClient httpClient = HttpClient.newHttpClient()) {
+            int port = server.getAddress().getPort();
+            com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
+                    "127.0.0.1", port, null, null, "http://base", null, null, null, "", false, java.util.Map.of(), null
+            );
+
+            AIProxyOauth.StartupProbeResult result =
+                    app.verifyChatCompletionThroughProxy(config, java.util.List.of(), null, httpClient);
+
+            assertFalse(result.success());
+            assertEquals("<missing streaming choices[].delta.content>", result.responseText());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void testStartupProbeReportsMissingAssistantContent() throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            byte[] response = """
+                    data: {"choices":[]}
+
+                    data: [DONE]
+
+                    """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try (HttpClient httpClient = HttpClient.newHttpClient()) {
+            int port = server.getAddress().getPort();
+            com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
+                    "127.0.0.1", port, null, null, "http://base", null, null, null, "", false, java.util.Map.of(), null
+            );
+
+            AIProxyOauth.StartupProbeResult result =
+                    app.verifyChatCompletionThroughProxy(config, java.util.List.of(), null, httpClient);
+
+            assertFalse(result.success());
+            assertEquals("<missing streaming choices[].delta.content>", result.responseText());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void testStartupProbeUsesApiKeyWhenProvided() throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        AtomicReference<String> authorization = new AtomicReference<>();
+
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] response = """
+                    data: {"choices":[{"delta":{"content":"Authenticated response"},"finish_reason":null}]}
+
+                    data: [DONE]
+
+                    """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try (HttpClient httpClient = HttpClient.newHttpClient()) {
+            int port = server.getAddress().getPort();
+            com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
+                    "127.0.0.1", port, java.util.List.of("gpt-5.2"), null, "http://base", null, null, null, "", false, java.util.Map.of(), null
+            );
+
+            AIProxyOauth.StartupProbeResult result =
+                    app.verifyChatCompletionThroughProxy(config, java.util.List.of(), "sk-proxy-test", httpClient);
+
+            assertTrue(result.success(), result.message());
+            assertEquals("Bearer sk-proxy-test", authorization.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void testStartupProbeReportsNonSuccessStatus() throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            byte[] response = "{\"error\":\"bad\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(502, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try (HttpClient httpClient = HttpClient.newHttpClient()) {
+            int port = server.getAddress().getPort();
+            com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
+                    "127.0.0.1", port, null, null, "http://base", null, null, null, "", false, java.util.Map.of(), null
+            );
+
+            AIProxyOauth.StartupProbeResult result =
+                    app.verifyChatCompletionThroughProxy(config, java.util.List.of(), null, httpClient);
+
+            assertFalse(result.success());
+            assertEquals(502, result.statusCode());
+            assertTrue(result.message().contains("502"), result.message());
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test

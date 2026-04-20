@@ -170,6 +170,26 @@ class ChatCompletionsHandlerTest {
         assertEquals("Hello!", body.path("choices").get(0).path("message").path("content").asText());
     }
 
+    @Test void nonStreaming_usesTextDeltaWhenCompletedResponseOmitsOutputText() throws Exception {
+        HttpResponse<InputStream> sseResp = sseResponse(200, DELTA_SSE);
+        when(client.request(anyString(), anyString(), anyString(), any())).thenReturn(sseResp);
+
+        HttpResponse<String> resp = post("""
+                {
+                  "messages": [
+                    {
+                      "role": "user",
+                      "content": "Hello"
+                    }
+                  ]
+                }
+                """);
+
+        assertEquals(200, resp.statusCode());
+        JsonNode body = MAPPER.readTree(resp.body());
+        assertEquals("Hello World!", body.path("choices").get(0).path("message").path("content").asText());
+    }
+
     @Test void systemMessage_becomesInstructions() throws Exception {
         HttpResponse<InputStream> sseResp = sseResponse(200, COMPLETED_TEXT_SSE);
         when(client.request(anyString(), anyString(), anyString(), any())).thenReturn(sseResp);

@@ -23,11 +23,12 @@ public class ModelResolver {
     private static final Pattern VERSION_PATTERN = Pattern.compile("\\b\\d+\\.\\d+\\.\\d+\\b");
     private static final long CODEX_VERSION_CACHE_TTL_MS = 60 * 60 * 1000L;
     private static final String REGISTRY_URL = "https://registry.npmjs.org/@openai/codex/latest";
-    private static final String FALLBACK_CODEX_CLIENT_VERSION = "0.115.0";
+    private static final String FALLBACK_CODEX_CLIENT_VERSION = "0.121.0";
 
     private final CodexHttpClient client;
     private final List<String> configuredModels;
     private final String codexVersion;
+    private final VersionCommandRunner versionCommandRunner;
 
     private volatile List<String> cachedModels;
     private volatile long modelsCacheExpiresAt;
@@ -40,9 +41,15 @@ public class ModelResolver {
     private final ReentrantLock codexVersionLock = new ReentrantLock();
 
     public ModelResolver(CodexHttpClient client, List<String> configuredModels, String codexVersion) {
+        this(client, configuredModels, codexVersion, ModelResolver::runVersionCommand);
+    }
+
+    ModelResolver(CodexHttpClient client, List<String> configuredModels, String codexVersion,
+                  VersionCommandRunner versionCommandRunner) {
         this.client = client;
         this.configuredModels = configuredModels;
         this.codexVersion = codexVersion;
+        this.versionCommandRunner = versionCommandRunner;
     }
 
     public List<String> resolveModels() throws Exception {
@@ -151,31 +158,65 @@ public class ModelResolver {
     }
 
     private String resolveLocalCodexVersion() {
+        for (List<String> command : localCodexVersionCommands(isWindows())) {
+            String output = versionCommandRunner.run(command);
+            String version = normalizeVersion(output);
+            if (version != null) {
+                return version;
+            }
+        }
+        return null;
+    }
+
+    static List<List<String>> localCodexVersionCommands(boolean windows) {
+        if (windows) {
+            return List.of(
+                    List.of("cmd.exe", "/c", "codex.cmd", "--version"),
+                    List.of("codex.exe", "--version"),
+                    List.of("codex", "--version")
+            );
+        }
+        return List.of(List.of("codex", "--version"));
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+    }
+
+    private static String runVersionCommand(List<String> command) {
         Process process = null;
         try {
-            ProcessBuilder pb = new ProcessBuilder("codex", "--version");
+            ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
             process = pb.start();
-            // Wait first with timeout; then read stdout so we don't block on readLine indefinitely.
             boolean finished = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
                 return null;
             }
-            // Read all lines so that a warning/banner on the first line doesn't mask the version.
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    String version = normalizeVersion(line);
-                    if (version != null) return version;
+                    if (!output.isEmpty()) {
+                        output.append('\n');
+                    }
+                    output.append(line);
                 }
-                return null;
             }
+            return output.toString();
         } catch (Exception e) {
-            if (process != null) process.destroyForcibly();
             return null;
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
         }
+    }
+
+    @FunctionalInterface
+    interface VersionCommandRunner {
+        String run(List<String> command);
     }
 
     private String resolveRemoteCodexVersion() {

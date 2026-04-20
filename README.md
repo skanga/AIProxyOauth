@@ -31,6 +31,30 @@ java -jar target/AIProxyOauth-1.0.0.jar
 
 The server starts on `http://127.0.0.1:10531/v1` by default.
 
+### Startup output
+
+On startup, the proxy prints the endpoint, discovered models, client API key enforcement status, network exposure, and the `auth.json` file it selected from the auth file discovery paths. It also performs a startup self-check by sending a streaming chat completion through the proxy and printing the actual model response text.
+
+Example:
+
+```text
+OpenAI OAuth Proxy Server started
+  Endpoint: http://127.0.0.1:10531/v1
+  Models:   gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.3-codex-spark, gpt-5.2
+  Client API key enforcement: disabled
+  Network access: Local access only
+  Auth file: C:\Users\skanga\.codex\auth.json
+  Startup check: chat completion OK (model: gpt-5.4)
+  Startup response: Hello! How can I help?
+```
+
+If the startup self-check receives HTTP 200 but no model text, it is reported as a failed check:
+
+```text
+Startup check: chat completion failed (HTTP 200, no model response text) (model: gpt-5.4)
+Startup response: <missing streaming choices[].delta.content>
+```
+
 ### Verify
 
 ```bash
@@ -200,6 +224,8 @@ Returns the list of available models. Models are auto-discovered from your accou
 
 Standard OpenAI Chat Completions API. Supports both streaming (`"stream": true`) and non-streaming requests.
 
+Internally, chat completions are sent to the upstream Responses API as a stream. For non-streaming client requests, the proxy collects the upstream SSE events and returns one OpenAI-style `chat.completion` response. If a model emits text only as `response.output_text.delta` events and omits it from the final completed response object, the collector uses those deltas to populate `choices[0].message.content`.
+
 **Supported request fields:**
 - `model` — model ID (default: `gpt-5.2`)
 - `messages` — array of message objects (`system`, `developer`, `user`, `assistant`, `tool` roles)
@@ -305,7 +331,7 @@ After a successful refresh, the updated tokens are written back to the auth file
 
 If `--models` is not specified, models are discovered automatically:
 
-1. The Codex client version is resolved: `--codex-version` flag, then local `codex --version`, then npm registry, then fallback `0.111.0`
+1. The Codex client version is resolved: `--codex-version` flag, then local Codex CLI detection (`codex --version`, or `codex.cmd --version` on Windows), then npm registry, then fallback `0.121.0`
 2. The upstream `/models?client_version=X` endpoint is queried
 3. Results are cached for 5 minutes
 
