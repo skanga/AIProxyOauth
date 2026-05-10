@@ -73,6 +73,16 @@ curl -X POST http://127.0.0.1:10531/v1/chat/completions \
 curl -X POST http://127.0.0.1:10531/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-5.2","messages":[{"role":"user","content":"Hello!"}],"stream":true}'
+
+# Responses API (non-streaming)
+curl -X POST http://127.0.0.1:10531/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-5.2","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello!"}]}]}'
+
+# Responses API (streaming)
+curl -X POST http://127.0.0.1:10531/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-5.2","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello!"}]}]}'
 ```
 
 ## CLI Options
@@ -91,7 +101,9 @@ curl -X POST http://127.0.0.1:10531/v1/chat/completions \
 | `--api-keys-file <path>` | _(open mode)_ | Path to a file with one API key per line |
 | `--generate-key [name]` | | Print a new random API key and exit; optional name produces `name:key` output |
 | `--admin-key <key>` | _(none)_ | Owner key that sees all users' stats at `GET /v1/usage` |
-| `--store` | `false` | Whether to store responses on the server |
+| `--store` | `false` | Whether to ask upstream to store responses. The proxy itself does not persist responses locally |
+| `--allow-any-cors` | `false` | Allow browser requests from any origin |
+| `--cors-origin <origin>` | _(none)_ | Allow a specific browser origin; can be repeated or comma-separated |
 | `--help` | | Show help and exit |
 | `--version` | | Show version and exit |
 
@@ -270,7 +282,7 @@ Returns accumulated token usage broken down by API key name, plus an overall tot
 }
 ```
 
-Token counts are tracked for `POST /v1/chat/completions` (streaming and non-streaming) and `POST /v1/responses` (non-streaming only). In open mode (no API keys configured) `keys` is always empty.
+Token counts are tracked for `POST /v1/chat/completions` and `POST /v1/responses`, for both streaming and non-streaming requests. In open mode (no API keys configured), usage is reported under the aggregate key name `*`.
 
 Each key sees only its own stats. The proxy owner can configure an `--admin-key` to see all users' stats:
 
@@ -283,9 +295,11 @@ java -jar AIProxyOauth-1.0.0.jar \
 
 ### `POST /v1/responses`
 
-Passthrough to the upstream Responses API with normalization. Requests are always streamed upstream; the response is either streamed back to the client or collected into a single JSON object depending on the `stream` field.
+`POST /v1/responses` is a passthrough to the upstream Responses API with normalization. Requests are always sent upstream as streaming requests; if the client asked for `stream:false`, the proxy collects the upstream SSE response and returns one JSON object.
 
-**Restrictions:** This endpoint operates in stateless mode. Requests containing `previous_response_id` or `item_reference` inputs are rejected with an error instructing the caller to replay the full conversation history.
+The proxy does not persist responses, input items, or conversations locally. `previous_response_id` and `item_reference` are expanded only from the bounded in-memory same-process replay cache when available; otherwise the request is forwarded as-is and the upstream service decides whether it can resolve the reference.
+
+`store` is forwarded upstream but does not enable local storage. Both streaming and non-streaming Responses can populate the bounded in-memory replay cache after a completed response event is seen.
 
 ## Authentication
 
@@ -337,7 +351,7 @@ If `--models` is not specified, models are discovered automatically:
 
 ## Using with OpenAI Client Libraries
 
-Point any OpenAI-compatible client at the proxy's base URL:
+Point any OpenAI-compatible client at the proxy's base URL. You can use either Chat Completions or Responses API methods.
 
 ### Python
 
@@ -350,11 +364,21 @@ client = OpenAI(
     # api_key="sk-proxy-a3f9c2d1e4b5f6a7b8c9d0e1f2a3b4c5"  # enforcement mode
 )
 
-response = client.chat.completions.create(
+chat_response = client.chat.completions.create(
     model="gpt-5.2",
     messages=[{"role": "user", "content": "Hello!"}]
 )
-print(response.choices[0].message.content)
+print(chat_response.choices[0].message.content)
+
+responses_response = client.responses.create(
+    model="gpt-5.2",
+    input=[{
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "Hello from Responses!"}],
+    }],
+)
+print(responses_response.output_text)
 ```
 
 ### Node.js
@@ -368,22 +392,42 @@ const client = new OpenAI({
   // apiKey: 'sk-proxy-a3f9c2d1e4b5f6a7b8c9d0e1f2a3b4c5',  // enforcement mode
 });
 
-const response = await client.chat.completions.create({
+const chatResponse = await client.chat.completions.create({
   model: 'gpt-5.2',
   messages: [{ role: 'user', content: 'Hello!' }],
 });
-console.log(response.choices[0].message.content);
+console.log(chatResponse.choices[0].message.content);
+
+const responsesResponse = await client.responses.create({
+  model: 'gpt-5.2',
+  input: [{
+    type: 'message',
+    role: 'user',
+    content: [{ type: 'input_text', text: 'Hello from Responses!' }],
+  }],
+});
+console.log(responsesResponse.output_text);
 ```
 
 ### curl
 
 ```bash
-# Open mode
+# Chat Completions, open mode
 curl http://127.0.0.1:10531/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-5.2","messages":[{"role":"user","content":"What is 2+2?"}]}'
 
-# Enforcement mode
+# Responses API, open mode
+curl http://127.0.0.1:10531/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-5.2","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"What is 2+2?"}]}]}'
+
+# Responses API, streaming
+curl http://127.0.0.1:10531/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-5.2","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Write one sentence."}]}]}'
+
+# Enforcement mode: add the proxy API key to either endpoint
 curl http://127.0.0.1:10531/v1/chat/completions \
   -H "Authorization: Bearer sk-proxy-a3f9c2d1e4b5f6a7b8c9d0e1f2a3b4c5" \
   -H "Content-Type: application/json" \

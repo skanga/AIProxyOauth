@@ -128,6 +128,38 @@ class AIProxyOauthTest {
     }
 
     @Test
+    void testBuildServerConfigAllowsAnyCorsOnlyWhenFlagProvided() throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        CommandLine cmd = new CommandLine(app);
+        cmd.parseArgs("--allow-any-cors");
+
+        com.aiproxyoauth.config.ServerConfig config = app.buildServerConfig();
+        assertTrue(config.allowAnyCors());
+        assertTrue(config.allowedCorsOrigins().isEmpty());
+    }
+
+    @Test
+    void testBuildServerConfigParsesCorsOrigins() throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        CommandLine cmd = new CommandLine(app);
+        cmd.parseArgs("--cors-origin", "http://one.example,http://two.example");
+
+        com.aiproxyoauth.config.ServerConfig config = app.buildServerConfig();
+        assertFalse(config.allowAnyCors());
+        assertEquals(java.util.List.of("http://one.example", "http://two.example"), config.allowedCorsOrigins());
+    }
+
+    @Test
+    void testBuildServerConfigRejectsFullNetworkOpenMode() {
+        AIProxyOauth app = new AIProxyOauth();
+        CommandLine cmd = new CommandLine(app);
+        cmd.parseArgs("--host", "0.0.0.0");
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, app::buildServerConfig);
+        assertTrue(ex.getMessage().contains("API key enforcement is required"));
+    }
+
+    @Test
     void testBuildServerConfig_AdminInFile(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
         AIProxyOauth app = new AIProxyOauth();
         CommandLine cmd = new CommandLine(app);
@@ -204,13 +236,13 @@ class AIProxyOauthTest {
         java.nio.file.Files.writeString(authFile, "{}");
 
         com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
-                "0.0.0.0", 10531, null, null, "http://base", null, null, authFile.toString(), "", false, java.util.Map.of(), null
+                "0.0.0.0", 10531, null, null, "http://base", null, null, authFile.toString(), "", false, java.util.Map.of("sk-proxy-key", "user"), null
         );
 
         app.printStartupBanner(config, java.util.List.of());
 
         String output = sw.toString();
-        assertTrue(output.contains("Client API key enforcement: disabled"));
+        assertTrue(output.contains("Client API key enforcement: enabled"));
         assertTrue(output.contains("Network access: Full network access"));
         assertTrue(output.contains("Auth file: " + authFile));
     }

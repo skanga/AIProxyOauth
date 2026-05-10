@@ -178,7 +178,7 @@ Uses `LinkedHashMap` with `removeEldestEntry` for automatic LRU eviction. All pu
 - `expandRequestBody()` — Replaces `previous_response_id` and `item_reference` with actual cached data
 - `rememberResponse()` — Caches a response's output items and input/output pair
 
-> **Note:** The `ResponsesState` is fully implemented but not currently wired into the server handlers, which operate in stateless mode. It is available for future use.
+> **Note:** `ResponsesState` is wired into `ResponsesHandler` as a best-effort, same-process replay cache. It is scoped per API key when key enforcement is enabled and is not durable storage.
 
 ### model
 
@@ -211,11 +211,11 @@ Both caches use double-checked locking with `ReentrantLock` and `volatile` field
 
 **`ResponsesHandler.java`** — Passthrough to upstream `/responses` with normalization:
 1. Validates body is a JSON object
-2. Rejects requests using `previous_response_id` or `item_reference` (stateless mode)
-3. Normalizes: forces `stream=true`, removes `max_output_tokens`, sets `instructions` and `store`
+2. Expands `previous_response_id` and `item_reference` only from bounded in-memory same-process cache when available
+3. Normalizes: forces upstream `stream=true`, sets default `instructions` and `store`
 4. Forwards to upstream
 5. If client wants streaming: pipes SSE directly
-6. If non-streaming: collects completed response via `SseCollector`
+6. If non-streaming: collects completed response via `SseCollector`, records usage, and remembers it only in memory
 
 **`ChatCompletionsHandler.java`** — The most complex handler. See [Chat Completions Translation Layer](#chat-completions-translation-layer).
 
@@ -384,13 +384,9 @@ Virtual threads make blocking I/O efficient. Reading from `InputStream` with `Bu
 1. Create a new `Handler` class in `com.aiproxyoauth.server`
 2. Register it in `ProxyServer.java`'s constructor
 
-### Enabling stateful responses
+### Responses replay state
 
-The `ResponsesState` class is fully implemented. To enable it:
-1. Instantiate it in `ProxyServer` or `AIProxyOauth`
-2. Pass it to `ResponsesHandler`
-3. In `ResponsesHandler`, call `expandRequestBody()` before forwarding and `rememberResponse()` after collecting the response
-4. Remove the `usesServerReplayState()` rejection check
+The project intentionally avoids durable local Responses storage. `ResponsesState` is a bounded in-memory compatibility cache for same-process replay only. Non-streaming Responses populate the cache after `SseCollector` sees the completed response. Streaming Responses are forwarded to clients while the proxy performs bounded best-effort SSE bookkeeping for usage and replay cache population after a `response.completed` event. Do not add database-backed response/conversation emulation unless the project explicitly introduces an opt-in stateful mode with tenant scoping and privacy documentation.
 
 ### Adding request logging
 

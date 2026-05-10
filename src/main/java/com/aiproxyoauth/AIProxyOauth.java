@@ -66,8 +66,14 @@ public class AIProxyOauth implements Callable<Integer> {
     @Option(names = "--oauth-file", description = "Path to the local auth.json file.")
     private String oauthFile;
 
-    @Option(names = "--store", description = "Whether to store responses on the server. Default: false")
+    @Option(names = "--store", description = "Whether to ask upstream to store responses. Default: false")
     private boolean store;
+
+    @Option(names = "--allow-any-cors", description = "Allow browser requests from any Origin. Default: false")
+    private boolean allowAnyCors;
+
+    @Option(names = "--cors-origin", split = ",", description = "Browser Origin allowed by CORS. Can be repeated or comma-separated.")
+    private List<String> corsOrigins;
 
     @Option(names = "--api-key", description = "Comma-separated API keys clients must present.")
     private String apiKey;
@@ -180,7 +186,9 @@ public class AIProxyOauth implements Callable<Integer> {
                 ServerConfig.DEFAULT_INSTRUCTIONS,
                 store,
                 apiKeyMap,
-                resolvedAdminKey
+                resolvedAdminKey,
+                allowAnyCors,
+                corsOrigins
         );
     }
 

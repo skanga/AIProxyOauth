@@ -73,4 +73,49 @@ class ServerConfigTest {
         assertEquals(3, config.apiKeys().size());
         keys.forEach((k, name) -> assertEquals(name, config.apiKeys().get(k)));
     }
+
+    @Test void nonLoopbackHostWithoutApiKeyEnforcementIsRejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> new ServerConfig(
+                "0.0.0.0", 10531, null, null,
+                ServerConfig.DEFAULT_BASE_URL, null, null, null,
+                "", false, Map.of(), null
+        ));
+        assertTrue(ex.getMessage().contains("API key enforcement is required"));
+    }
+
+    @Test void nonLoopbackHostWithRegularApiKeyIsAllowed() {
+        ServerConfig config = new ServerConfig(
+                "0.0.0.0", 10531, null, null,
+                ServerConfig.DEFAULT_BASE_URL, null, null, null,
+                "", false, Map.of("sk-proxy-key", "app"), null
+        );
+        assertEquals("0.0.0.0", config.host());
+    }
+
+    @Test void nonLoopbackHostWithAdminApiKeyIsAllowed() {
+        ServerConfig config = new ServerConfig(
+                "192.168.1.10", 10531, null, null,
+                ServerConfig.DEFAULT_BASE_URL, null, null, null,
+                "", false, Map.of(), "sk-proxy-admin"
+        );
+        assertEquals("192.168.1.10", config.host());
+    }
+
+    @Test void corsDefaultsToDisabled() {
+        ServerConfig config = minimal(Map.of());
+        assertFalse(config.allowAnyCors());
+        assertTrue(config.allowedCorsOrigins().isEmpty());
+    }
+
+    @Test void corsOriginsAreTrimmedAndUnmodifiable() {
+        ServerConfig config = new ServerConfig(
+                "127.0.0.1", 10531, null, null,
+                ServerConfig.DEFAULT_BASE_URL, null, null, null,
+                "", false, Map.of(), null,
+                false, java.util.List.of(" http://one.example ", "", "http://two.example")
+        );
+        assertEquals(java.util.List.of("http://one.example", "http://two.example"), config.allowedCorsOrigins());
+        assertThrows(UnsupportedOperationException.class,
+                () -> config.allowedCorsOrigins().add("http://three.example"));
+    }
 }

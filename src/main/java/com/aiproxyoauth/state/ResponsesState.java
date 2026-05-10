@@ -9,10 +9,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Provides stateful expansion for the Responses API (resolving previous_response_id and
- * item_reference). Currently used only for {@link #requiresCachedState} to detect and reject
- * stateful requests, keeping the server stateless. The expansion methods ({@link #expandRequestBody}
- * and {@link #rememberResponse}) are available for future use if stateful mode is enabled.
+ * Bounded in-memory compatibility cache for Responses API replay references.
+ *
+ * <p>The cache resolves previous_response_id and item_reference within a single process only.
+ * It is not durable storage and should be scoped by the caller before use.
  */
 public class ResponsesState {
 
