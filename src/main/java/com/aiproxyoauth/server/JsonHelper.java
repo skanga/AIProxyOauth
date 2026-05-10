@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.aiproxyoauth.util.Json;
 import io.javalin.http.Context;
 
+import java.nio.charset.StandardCharsets;
+
 public final class JsonHelper {
 
     /** Shared mapper — alias to {@link Json#MAPPER}. */
@@ -24,9 +26,13 @@ public final class JsonHelper {
         ctx.status(status);
         ctx.contentType(JSON_CONTENT_TYPE);
         try {
-            ctx.result(Json.MAPPER.writeValueAsString(body));
+            String json = Json.MAPPER.writeValueAsString(body);
+            AccessLogFields.responseBytes(ctx, json.getBytes(StandardCharsets.UTF_8).length);
+            ctx.result(json);
         } catch (Exception e) {
-            ctx.result("{}");
+            String fallback = "{}";
+            AccessLogFields.responseBytes(ctx, fallback.getBytes(StandardCharsets.UTF_8).length);
+            ctx.result(fallback);
         }
     }
 

@@ -18,8 +18,8 @@ import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.Map;
 
-import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class ProxyServerTest {
@@ -46,6 +46,76 @@ class ProxyServerTest {
         assertNotNull(server.getApp());
         
         // We can't easily check all routes without starting, but we can verify it's configured.
+    }
+
+    @Test
+    void proxyServer_accessLogOmitsHeadersAndQueryString() throws Exception {
+        ServerConfig config = minimalConfig();
+        ProxyServer server = new ProxyServer(config, client, modelResolver, usageTracker, new ApiKeyStore(Map.of(), null, null));
+        server.getApp().start(0);
+        int port = server.getApp().port();
+
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
+        try {
+            System.setOut(new java.io.PrintStream(captured, true, StandardCharsets.UTF_8));
+            HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/health?token=secret"))
+                    .header("Authorization", "Bearer sk-proxy-secret")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode());
+        } finally {
+            System.setOut(originalOut);
+            server.getApp().stop();
+        }
+
+        String log = captured.toString(StandardCharsets.UTF_8);
+        assertTrue(log.contains("GET /health 200"), log);
+        assertTrue(log.matches("(?s).*id=req_[0-9a-f]{32}.*"), log);
+        assertTrue(log.contains("mode=internal"), log);
+        assertTrue(log.contains("req_bytes=0"), log);
+        assertTrue(log.contains("status=200"), log);
+        assertTrue(log.matches("(?s).*resp_bytes=\\d+.*"), log);
+        assertFalse(log.contains("Authorization"), log);
+        assertFalse(log.contains("sk-proxy-secret"), log);
+        assertFalse(log.contains("token=secret"), log);
+    }
+
+    @Test
+    void proxyServer_accessLogStatusPrefersUpstreamStatus() throws Exception {
+        ServerConfig config = minimalConfig();
+        ProxyServer server = new ProxyServer(config, client, modelResolver, usageTracker, new ApiKeyStore(Map.of(), null, null));
+        String upstreamBody = """
+                {"error":{"message":"usage limit","type":"not_found"}}
+                """;
+        @SuppressWarnings("unchecked")
+        HttpResponse<java.io.InputStream> upstream = mock(HttpResponse.class);
+        when(upstream.statusCode()).thenReturn(404);
+        when(upstream.body()).thenReturn(new java.io.ByteArrayInputStream(upstreamBody.getBytes(StandardCharsets.UTF_8)));
+        when(client.request(eq("/responses"), eq("POST"), anyString(), any())).thenReturn(upstream);
+
+        server.getApp().start(0);
+        int port = server.getApp().port();
+
+        java.io.PrintStream originalOut = System.out;
+        java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
+        try {
+            System.setOut(new java.io.PrintStream(captured, true, StandardCharsets.UTF_8));
+            HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/v1/responses"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"input\":[]}"))
+                    .build();
+            HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+            assertEquals(429, response.statusCode());
+        } finally {
+            System.setOut(originalOut);
+            server.getApp().stop();
+        }
+
+        String log = captured.toString(StandardCharsets.UTF_8);
+        assertTrue(log.contains("POST /v1/responses 429"), log);
+        assertTrue(log.contains("status=404"), log);
     }
 
     @Test

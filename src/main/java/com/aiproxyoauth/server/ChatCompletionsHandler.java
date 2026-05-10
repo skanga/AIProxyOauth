@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.aiproxyoauth.config.ServerConfig;
+import com.aiproxyoauth.logging.RequestLogger;
+import com.aiproxyoauth.model.CodexInstructionsProvider;
+import com.aiproxyoauth.model.ModelAliasResolver;
 import com.aiproxyoauth.sse.SseCollector;
 import com.aiproxyoauth.sse.SseParser;
 import com.aiproxyoauth.transport.CodexHttpClient;
@@ -24,16 +27,31 @@ public class ChatCompletionsHandler implements Handler {
     private final CodexHttpClient client;
     private final ServerConfig config;
     private final UsageTracker usageTracker;
+    private final RequestLogger requestLogger;
+    private final CodexInstructionsProvider instructionsProvider;
+    private final ModelAliasResolver modelAliasResolver = new ModelAliasResolver();
+    private final UpstreamErrorMapper upstreamErrorMapper = new UpstreamErrorMapper();
 
     public ChatCompletionsHandler(CodexHttpClient client, ServerConfig config, UsageTracker usageTracker) {
+        this(client, config, usageTracker,
+                new RequestLogger(false, java.nio.file.Path.of(config.requestLogDir())),
+                new CodexInstructionsProvider(config.instructions()));
+    }
+
+    public ChatCompletionsHandler(CodexHttpClient client, ServerConfig config, UsageTracker usageTracker,
+                                  RequestLogger requestLogger, CodexInstructionsProvider instructionsProvider) {
         this.client = client;
         this.config = config;
         this.usageTracker = usageTracker;
+        this.requestLogger = requestLogger;
+        this.instructionsProvider = instructionsProvider;
     }
 
     @Override
     public void handle(Context ctx) throws Exception {
+        String requestId = shouldUseRequestContext() ? requestId(ctx) : requestLogger.nextRequestId();
         String bodyStr = ctx.body();
+        requestLogger.logInbound(requestId, ctx, bodyStr);
         JsonNode body = MAPPER.readTree(bodyStr);
 
         if (body == null || !body.isObject()) {
@@ -48,6 +66,7 @@ public class ChatCompletionsHandler implements Handler {
         }
 
         boolean wantsStream = body.path("stream").asBoolean(false);
+        AccessLogFields.mode(ctx, wantsStream ? "stream" : "sync");
         // When --models was specified, default to the first configured model.
         // "gpt-5.2" is the last-resort fallback for when no models were configured and
         // auto-discovery failed — in that case no better default is available without
@@ -55,34 +74,40 @@ public class ChatCompletionsHandler implements Handler {
         String defaultModel = config.models() != null && !config.models().isEmpty()
                 ? config.models().getFirst() : ServerConfig.DEFAULT_MODEL;
         String model = body.path("model").asText(defaultModel);
+        ModelAliasResolver.ResolvedModel resolvedModel = modelAliasResolver.resolve(model);
+        String upstreamModel = resolvedModel.model() != null ? resolvedModel.model() : model;
 
         // Build upstream Responses API request
-        ObjectNode upstreamBody = buildUpstreamBody(body, model);
+        ObjectNode upstreamBody = buildUpstreamBody(body, upstreamModel, resolvedModel.reasoningEffort());
+        String promptCacheKey = config.forwardPromptCacheHeaders()
+                ? upstreamBody.path("prompt_cache_key").asText(null)
+                : null;
 
         // Always stream upstream
-        HttpResponse<InputStream> upstream = client.request(
-                "/responses", "POST",
-                MAPPER.writeValueAsString(upstreamBody),
-                Map.of("Content-Type", "application/json"));
+        HttpResponse<InputStream> upstream = sendUpstream(upstreamBody, requestId, promptCacheKey);
+        AccessLogFields.upstreamStatus(ctx, upstream.statusCode());
 
         try (InputStream responseStream = upstream.body()) {
             if (upstream.statusCode() < 200 || upstream.statusCode() >= 300) {
                 String rawBody = new String(responseStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-                ctx.status(upstream.statusCode());
+                UpstreamErrorMapper.MappedUpstreamError mapped = upstreamErrorMapper.map(upstream.statusCode(), rawBody);
+                requestLogger.logUpstreamResponse(requestId, mapped.statusCode(), responseHeaders(upstream), mapped.body());
+                ctx.status(mapped.statusCode());
                 ctx.contentType(JsonHelper.JSON_CONTENT_TYPE);
-                ctx.result(JsonHelper.toUpstreamErrorBody(rawBody, upstream.statusCode()));
+                AccessLogFields.responseBytes(ctx, mapped.body().getBytes(StandardCharsets.UTF_8).length);
+                ctx.result(mapped.body());
                 return;
             }
 
             if (wantsStream) {
-                streamToClient(ctx, responseStream, model);
+                streamToClient(ctx, responseStream, upstreamModel);
             } else {
-                nonStreamToClient(ctx, responseStream, model);
+                nonStreamToClient(ctx, responseStream, upstreamModel);
             }
         }
     }
 
-    private ObjectNode buildUpstreamBody(JsonNode chatBody, String model) {
+    private ObjectNode buildUpstreamBody(JsonNode chatBody, String model, String aliasReasoningEffort) {
         ObjectNode upstream = MAPPER.createObjectNode();
         upstream.put("model", model);
         upstream.put("stream", true);
@@ -159,7 +184,7 @@ public class ChatCompletionsHandler implements Handler {
         // Set instructions
         String instr = instructions.toString();
         if (instr.isEmpty()) {
-            instr = config.instructions();
+            instr = instructionsProvider.instructionsForModel(model);
         }
         upstream.put("instructions", instr);
 
@@ -213,11 +238,49 @@ public class ChatCompletionsHandler implements Handler {
         // Reasoning effort
         if (chatBody.has("reasoning_effort") && !chatBody.get("reasoning_effort").isNull()) {
             ObjectNode reasoning = MAPPER.createObjectNode();
-            reasoning.put("effort", chatBody.get("reasoning_effort").asText());
+            reasoning.put("effort", modelAliasResolver.clampReasoningEffort(model, chatBody.get("reasoning_effort").asText()));
+            upstream.set("reasoning", reasoning);
+        } else if (aliasReasoningEffort != null) {
+            ObjectNode reasoning = MAPPER.createObjectNode();
+            reasoning.put("effort", modelAliasResolver.clampReasoningEffort(model, aliasReasoningEffort));
             upstream.set("reasoning", reasoning);
         }
 
         return upstream;
+    }
+
+    private HttpResponse<InputStream> sendUpstream(ObjectNode upstreamBody, String requestId, String promptCacheKey)
+            throws Exception {
+        String payload = MAPPER.writeValueAsString(upstreamBody);
+        if (shouldUseRequestContext()) {
+            return client.request(
+                    "/responses", "POST",
+                    payload,
+                    Map.of("Content-Type", "application/json"),
+                    requestId,
+                    promptCacheKey);
+        }
+        return client.request(
+                "/responses", "POST",
+                payload,
+                Map.of("Content-Type", "application/json"));
+    }
+
+    private boolean shouldUseRequestContext() {
+        return config.fullRequestLogging() || config.forwardPromptCacheHeaders();
+    }
+
+    private static <T> Map<String, List<String>> responseHeaders(HttpResponse<T> response) {
+        return response.headers() == null ? Map.of() : response.headers().map();
+    }
+
+    private String requestId(Context ctx) {
+        String requestId = ctx.attribute("requestId");
+        if (requestId == null || requestId.isBlank()) {
+            requestId = requestLogger.nextRequestId();
+            ctx.attribute("requestId", requestId);
+        }
+        return requestId;
     }
 
     private void nonStreamToClient(Context ctx, InputStream upstreamBody, String model) throws Exception {
@@ -314,7 +377,7 @@ public class ChatCompletionsHandler implements Handler {
         boolean[] finishSent = {false};
 
         // Send initial role chunk
-        writeSseChunk(os, createChunk(id, created, model, createRoleDelta("assistant"), null));
+        writeSseChunk(ctx, os, createChunk(id, created, model, createRoleDelta("assistant"), null));
 
         try {
             SseParser.iterateEvents(upstreamBody, event -> {
@@ -325,10 +388,12 @@ public class ChatCompletionsHandler implements Handler {
                         // error mid-stream), emit a synthetic finish chunk so clients don't hang
                         // waiting for a non-null finish_reason.
                         if (!finishSent[0]) {
-                            writeSseChunk(os, createChunk(id, created, model, createEmptyDelta(), "stop"));
+                            writeSseChunk(ctx, os, createChunk(id, created, model, createEmptyDelta(), "stop"));
                             finishSent[0] = true;
                         }
-                        os.write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
+                        byte[] doneBytes = "data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8);
+                        os.write(doneBytes);
+                        AccessLogFields.addResponseBytes(ctx, doneBytes.length);
                         os.flush();
                         doneSent[0] = true;
                         return;
@@ -343,7 +408,7 @@ public class ChatCompletionsHandler implements Handler {
                         case "response.output_text.delta" -> {
                             String delta = parsed.path("delta").asText("");
                             if (!delta.isEmpty()) {
-                                writeSseChunk(os, createChunk(id, created, model,
+                                writeSseChunk(ctx, os, createChunk(id, created, model,
                                         createContentDelta(delta), null));
                             }
                         }
@@ -366,7 +431,7 @@ public class ChatCompletionsHandler implements Handler {
                                 tc.set("function", func);
                                 tcArray.add(tc);
 
-                                writeSseChunk(os, createChunk(id, created, model,
+                                writeSseChunk(ctx, os, createChunk(id, created, model,
                                         createToolCallsDelta(tcArray), null));
                             }
                         }
@@ -384,7 +449,7 @@ public class ChatCompletionsHandler implements Handler {
                                 tc.set("function", func);
                                 tcArray.add(tc);
 
-                                writeSseChunk(os, createChunk(id, created, model,
+                                writeSseChunk(ctx, os, createChunk(id, created, model,
                                         createToolCallsDelta(tcArray), null));
                             }
                         }
@@ -398,7 +463,7 @@ public class ChatCompletionsHandler implements Handler {
                             };
 
                             // Finish chunk
-                            writeSseChunk(os, createChunk(id, created, model, createEmptyDelta(), fr));
+                            writeSseChunk(ctx, os, createChunk(id, created, model, createEmptyDelta(), fr));
                             finishSent[0] = true;
 
                             // Usage chunk
@@ -413,7 +478,7 @@ public class ChatCompletionsHandler implements Handler {
                             usageChunk.put("model", model);
                             usageChunk.set("choices", MAPPER.createArrayNode());
                             usageChunk.set("usage", JsonHelper.toUsage(usageNode));
-                            writeSseChunk(os, usageChunk);
+                            writeSseChunk(ctx, os, usageChunk);
                         }
                         case "response.failed", "response.cancelled" -> {
                             JsonNode response = parsed.get("response");
@@ -423,7 +488,7 @@ public class ChatCompletionsHandler implements Handler {
                             // Emit a finish chunk with "stop" so the client stream terminates cleanly,
                             // then write an error SSE event with details.
                             if (!finishSent[0]) {
-                                writeSseChunk(os, createChunk(id, created, model, createEmptyDelta(), "stop"));
+                                writeSseChunk(ctx, os, createChunk(id, created, model, createEmptyDelta(), "stop"));
                                 finishSent[0] = true;
                             }
                             ObjectNode errPayload = MAPPER.createObjectNode();
@@ -432,7 +497,9 @@ public class ChatCompletionsHandler implements Handler {
                             errObj.put("type", "upstream_error");
                             errPayload.set("error", errObj);
                             String errLine = "event: error\ndata: " + MAPPER.writeValueAsString(errPayload) + "\n\n";
-                            os.write(errLine.getBytes(StandardCharsets.UTF_8));
+                            byte[] errorBytes = errLine.getBytes(StandardCharsets.UTF_8);
+                            os.write(errorBytes);
+                            AccessLogFields.addResponseBytes(ctx, errorBytes.length);
                         }
                     }
                 } catch (java.io.IOException e) {
@@ -448,9 +515,11 @@ public class ChatCompletionsHandler implements Handler {
             if (!doneSent[0]) {
                 try {
                     if (!finishSent[0]) {
-                        writeSseChunk(os, createChunk(id, created, model, createEmptyDelta(), "stop"));
+                        writeSseChunk(ctx, os, createChunk(id, created, model, createEmptyDelta(), "stop"));
                     }
-                    os.write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
+                    byte[] doneBytes = "data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8);
+                    os.write(doneBytes);
+                    AccessLogFields.addResponseBytes(ctx, doneBytes.length);
                 } catch (Exception ignored) {}
             }
             os.flush();
@@ -502,9 +571,11 @@ public class ChatCompletionsHandler implements Handler {
         return MAPPER.createObjectNode();
     }
 
-    private void writeSseChunk(OutputStream os, JsonNode data) throws Exception {
+    private void writeSseChunk(Context ctx, OutputStream os, JsonNode data) throws Exception {
         String line = "data: " + MAPPER.writeValueAsString(data) + "\n\n";
-        os.write(line.getBytes(StandardCharsets.UTF_8));
+        byte[] bytes = line.getBytes(StandardCharsets.UTF_8);
+        os.write(bytes);
+        AccessLogFields.addResponseBytes(ctx, bytes.length);
         os.flush();
     }
 

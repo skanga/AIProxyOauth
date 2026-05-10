@@ -75,6 +75,21 @@ public class AIProxyOauth implements Callable<Integer> {
     @Option(names = "--cors-origin", split = ",", description = "Browser Origin allowed by CORS. Can be repeated or comma-separated.")
     private List<String> corsOrigins;
 
+    @Option(names = "--log-requests", description = "Log full proxied request/response metadata to disk with sensitive headers redacted. Default: false")
+    private boolean logRequests;
+
+    @Option(names = "--request-log-dir", description = "Directory for --log-requests output. Default: ./logs/requests")
+    private String requestLogDir;
+
+    @Option(names = "--forward-prompt-cache-headers", description = "Forward prompt_cache_key as upstream conversation/session headers. Experimental. Default: false")
+    private boolean forwardPromptCacheHeaders;
+
+    @Option(names = "--codex-instructions", description = "Instruction source: configured or latest-codex. Default: configured")
+    private String codexInstructionsMode;
+
+    @Option(names = "--codex-instructions-cache-dir", description = "Directory for cached latest Codex instructions. Default: ./cache/codex-instructions")
+    private String codexInstructionsCacheDir;
+
     @Option(names = "--api-key", description = "Comma-separated API keys clients must present.")
     private String apiKey;
 
@@ -98,6 +113,11 @@ public class AIProxyOauth implements Callable<Integer> {
         }
 
         ServerConfig config = buildServerConfig();
+        if (config.fullRequestLogging()) {
+            System.err.println("WARNING: full request logging is enabled. Request/response bodies may contain prompts, "
+                    + "tool outputs, file paths, and other sensitive data. Authorization and API key headers are "
+                    + "redacted, but logs should still be protected.");
+        }
 
         Map<String, String> inlineKeys = parseInlineKeys();
         if (config.adminKey() != null) inlineKeys.remove(config.adminKey());
@@ -188,7 +208,12 @@ public class AIProxyOauth implements Callable<Integer> {
                 apiKeyMap,
                 resolvedAdminKey,
                 allowAnyCors,
-                corsOrigins
+                corsOrigins,
+                logRequests,
+                requestLogDir,
+                forwardPromptCacheHeaders,
+                codexInstructionsMode,
+                codexInstructionsCacheDir
         );
     }
 
@@ -284,6 +309,7 @@ public class AIProxyOauth implements Callable<Integer> {
         }
         out.println("  Client API key enforcement: " + (apiKeyEnforcement ? "enabled" : "disabled"));
         out.println("  Network access: " + describeNetworkAccess(config.host()));
+        out.println("  CORS: " + describeCors(config));
         if (authFilePath != null && !authFilePath.isBlank()) {
             out.println("  Auth file: " + authFilePath);
         }
@@ -490,6 +516,16 @@ public class AIProxyOauth implements Callable<Integer> {
 
     static String describeNetworkAccess(String host) {
         return isLocalOnlyHost(host) ? "Local access only" : "Full network access";
+    }
+
+    static String describeCors(ServerConfig config) {
+        if (config.allowAnyCors()) {
+            return "any origin";
+        }
+        if (!config.allowedCorsOrigins().isEmpty()) {
+            return String.join(", ", config.allowedCorsOrigins());
+        }
+        return "disabled";
     }
 
     private static boolean isLocalOnlyHost(String host) {

@@ -3,6 +3,7 @@ package com.aiproxyoauth.config;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.nio.file.Path;
 
 public record ServerConfig(
         String host,
@@ -18,7 +19,12 @@ public record ServerConfig(
         Map<String, String> apiKeys,
         String adminKey,
         boolean allowAnyCors,
-        List<String> allowedCorsOrigins
+        List<String> allowedCorsOrigins,
+        boolean fullRequestLogging,
+        String requestLogDir,
+        boolean forwardPromptCacheHeaders,
+        String codexInstructionsMode,
+        String codexInstructionsCacheDir
 ) {
     public static final String DEFAULT_HOST = "127.0.0.1";
     public static final int DEFAULT_PORT = 10531;
@@ -27,6 +33,15 @@ public record ServerConfig(
     public static final String DEFAULT_ISSUER = "https://auth.openai.com";
     public static final String DEFAULT_INSTRUCTIONS = "";
     public static final String DEFAULT_MODEL = "gpt-5.2";
+    public static final String DEFAULT_REQUEST_LOG_DIR = Path.of("logs", "requests")
+            .toAbsolutePath()
+            .normalize()
+            .toString();
+    public static final String DEFAULT_CODEX_INSTRUCTIONS_MODE = "configured";
+    public static final String DEFAULT_CODEX_INSTRUCTIONS_CACHE_DIR = Path.of("cache", "codex-instructions")
+            .toAbsolutePath()
+            .normalize()
+            .toString();
     public static final String KEY_PREFIX = "sk-proxy-";
 
     public ServerConfig(
@@ -44,7 +59,51 @@ public record ServerConfig(
             String adminKey
     ) {
         this(host, port, models, codexVersion, baseUrl, oauthClientId, oauthTokenUrl, oauthFilePath,
-                instructions, store, apiKeys, adminKey, false, List.of());
+                instructions, store, apiKeys, adminKey, false, List.of(), false, null, false, null, null);
+    }
+
+    public ServerConfig(
+            String host,
+            int port,
+            List<String> models,
+            String codexVersion,
+            String baseUrl,
+            String oauthClientId,
+            String oauthTokenUrl,
+            String oauthFilePath,
+            String instructions,
+            boolean store,
+            Map<String, String> apiKeys,
+            String adminKey,
+            boolean allowAnyCors,
+            List<String> allowedCorsOrigins
+    ) {
+        this(host, port, models, codexVersion, baseUrl, oauthClientId, oauthTokenUrl, oauthFilePath,
+                instructions, store, apiKeys, adminKey, allowAnyCors, allowedCorsOrigins, false, null, false, null, null);
+    }
+
+    public ServerConfig(
+            String host,
+            int port,
+            List<String> models,
+            String codexVersion,
+            String baseUrl,
+            String oauthClientId,
+            String oauthTokenUrl,
+            String oauthFilePath,
+            String instructions,
+            boolean store,
+            Map<String, String> apiKeys,
+            String adminKey,
+            boolean allowAnyCors,
+            List<String> allowedCorsOrigins,
+            boolean fullRequestLogging,
+            String requestLogDir,
+            boolean forwardPromptCacheHeaders
+    ) {
+        this(host, port, models, codexVersion, baseUrl, oauthClientId, oauthTokenUrl, oauthFilePath,
+                instructions, store, apiKeys, adminKey, allowAnyCors, allowedCorsOrigins,
+                fullRequestLogging, requestLogDir, forwardPromptCacheHeaders, null, null);
     }
 
     public ServerConfig {
@@ -52,6 +111,9 @@ public record ServerConfig(
         if (baseUrl == null) baseUrl = DEFAULT_BASE_URL;
         if (oauthClientId == null) oauthClientId = DEFAULT_CLIENT_ID;
         if (instructions == null) instructions = DEFAULT_INSTRUCTIONS;
+        requestLogDir = normalizeRequestLogDir(requestLogDir);
+        codexInstructionsMode = normalizeCodexInstructionsMode(codexInstructionsMode);
+        codexInstructionsCacheDir = normalizeCodexInstructionsCacheDir(codexInstructionsCacheDir);
         if (port < 1 || port > 65535) {
             throw new IllegalArgumentException("Port must be in range 1-65535, got: " + port);
         }
@@ -72,6 +134,31 @@ public record ServerConfig(
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
                 .toList();
+    }
+
+    private static String normalizeRequestLogDir(String requestLogDir) {
+        if (requestLogDir == null || requestLogDir.isBlank()) {
+            return DEFAULT_REQUEST_LOG_DIR;
+        }
+        return Path.of(requestLogDir).toAbsolutePath().normalize().toString();
+    }
+
+    private static String normalizeCodexInstructionsMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return DEFAULT_CODEX_INSTRUCTIONS_MODE;
+        }
+        String normalized = mode.strip().toLowerCase(Locale.ROOT);
+        if (!"configured".equals(normalized) && !"latest-codex".equals(normalized)) {
+            throw new IllegalArgumentException("Codex instructions mode must be configured or latest-codex, got: " + mode);
+        }
+        return normalized;
+    }
+
+    private static String normalizeCodexInstructionsCacheDir(String cacheDir) {
+        if (cacheDir == null || cacheDir.isBlank()) {
+            return DEFAULT_CODEX_INSTRUCTIONS_CACHE_DIR;
+        }
+        return Path.of(cacheDir).toAbsolutePath().normalize().toString();
     }
 
     private static boolean isLocalOnlyHost(String host) {

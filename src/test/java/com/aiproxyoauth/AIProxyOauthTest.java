@@ -150,6 +150,25 @@ class AIProxyOauthTest {
     }
 
     @Test
+    void testBuildServerConfigParsesRequestLoggingOptions(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        CommandLine cmd = new CommandLine(app);
+        java.nio.file.Path logDir = tempDir.resolve("request-logs");
+        cmd.parseArgs(
+                "--log-requests",
+                "--request-log-dir", logDir.toString(),
+                "--forward-prompt-cache-headers"
+        );
+
+        com.aiproxyoauth.config.ServerConfig config = app.buildServerConfig();
+
+        assertTrue(config.fullRequestLogging());
+        assertEquals(logDir.toAbsolutePath().normalize().toString(), config.requestLogDir());
+        assertTrue(config.forwardPromptCacheHeaders());
+    }
+
+    @Test
     void testBuildServerConfigRejectsFullNetworkOpenMode() {
         AIProxyOauth app = new AIProxyOauth();
         CommandLine cmd = new CommandLine(app);
@@ -219,6 +238,7 @@ class AIProxyOauthTest {
         assertTrue(output.contains("Models:   gpt-4"));
         assertTrue(output.contains("Client API key enforcement: enabled"));
         assertTrue(output.contains("Network access: Local access only"));
+        assertTrue(output.contains("CORS: disabled"));
         assertTrue(output.contains("Auth file: " + authFile));
         assertTrue(output.contains("Keys:     1 key(s) configured (u1)"));
         assertTrue(output.contains("Admin:    key configured"));
@@ -244,7 +264,50 @@ class AIProxyOauthTest {
         String output = sw.toString();
         assertTrue(output.contains("Client API key enforcement: enabled"));
         assertTrue(output.contains("Network access: Full network access"));
+        assertTrue(output.contains("CORS: disabled"));
         assertTrue(output.contains("Auth file: " + authFile));
+    }
+
+    @Test
+    void testPrintStartupBannerShowsAnyCors(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        StringWriter sw = new StringWriter();
+        CommandLine cmd = new CommandLine(app);
+        cmd.setOut(new PrintWriter(sw));
+
+        java.nio.file.Path authFile = tempDir.resolve("auth.json");
+        java.nio.file.Files.writeString(authFile, "{}");
+
+        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
+                "127.0.0.1", 10531, null, null, "http://base", null, null, authFile.toString(), "", false,
+                java.util.Map.of(), null, true, null
+        );
+
+        app.printStartupBanner(config, java.util.List.of());
+
+        assertTrue(sw.toString().contains("CORS: any origin"));
+    }
+
+    @Test
+    void testPrintStartupBannerShowsConfiguredCorsOrigins(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        StringWriter sw = new StringWriter();
+        CommandLine cmd = new CommandLine(app);
+        cmd.setOut(new PrintWriter(sw));
+
+        java.nio.file.Path authFile = tempDir.resolve("auth.json");
+        java.nio.file.Files.writeString(authFile, "{}");
+
+        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
+                "127.0.0.1", 10531, null, null, "http://base", null, null, authFile.toString(), "", false,
+                java.util.Map.of(), null, false, java.util.List.of("http://one.example", "http://two.example")
+        );
+
+        app.printStartupBanner(config, java.util.List.of());
+
+        assertTrue(sw.toString().contains("CORS: http://one.example, http://two.example"));
     }
 
     @Test

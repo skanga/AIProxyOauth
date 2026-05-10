@@ -282,6 +282,29 @@ class ChatCompletionsHandlerTest {
         assertEquals("high", upstream.path("reasoning").path("effort").asText());
     }
 
+    @Test void modelAlias_setsBackendModelAndReasoningEffort() throws Exception {
+        HttpResponse<InputStream> sseResp = sseResponse(200, COMPLETED_TEXT_SSE);
+        when(client.request(anyString(), anyString(), anyString(), any())).thenReturn(sseResp);
+
+        post("""
+                {
+                  "model": "gpt-5.2-codex-xhigh",
+                  "messages": [
+                    {
+                      "role": "user",
+                      "content": "Hi"
+                    }
+                  ]
+                }
+                """);
+
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(client).request(anyString(), anyString(), bodyCaptor.capture(), any());
+        JsonNode upstream = MAPPER.readTree(bodyCaptor.getValue());
+        assertEquals("gpt-5.2-codex", upstream.path("model").asText());
+        assertEquals("xhigh", upstream.path("reasoning").path("effort").asText());
+    }
+
     @Test void functionCallInResponse_finishReasonIsToolCalls() throws Exception {
         HttpResponse<InputStream> sseResp = sseResponse(200, TOOL_CALL_SSE);
         when(client.request(anyString(), anyString(), anyString(), any())).thenReturn(sseResp);
@@ -465,6 +488,32 @@ class ChatCompletionsHandlerTest {
                 """);
 
         assertEquals(401, resp.statusCode());
+    }
+
+    @Test void upstreamUsageLimit404_mapsTo429() throws Exception {
+        HttpResponse<InputStream> sseResp = sseResponse(404, """
+                {
+                  "error": {
+                    "message": "Usage limit reached",
+                    "code": "usage_limit_reached"
+                  }
+                }
+                """);
+        when(client.request(anyString(), anyString(), anyString(), any())).thenReturn(sseResp);
+
+        HttpResponse<String> resp = post("""
+                {
+                  "messages": [
+                    {
+                      "role": "user",
+                      "content": "Hi"
+                    }
+                  ]
+                }
+                """);
+
+        assertEquals(429, resp.statusCode());
+        assertTrue(resp.body().contains("usage_limit_reached"));
     }
 
     @Test void streamTrue_upstreamErrorDuringStream_emittedToClient() throws Exception {

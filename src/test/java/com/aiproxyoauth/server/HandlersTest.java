@@ -24,13 +24,23 @@ class HandlersTest {
     @Mock UsageTracker usageTracker;
 
     @Test
-    void healthHandler_returnsOk() {
-        HealthHandler handler = new HealthHandler();
+    void healthHandler_returnsSafeStatusFields() throws Exception {
+        HealthHandler handler = new HealthHandler(() -> 5_500_000_000L, 1_000_000_000L);
         handler.handle(ctx);
 
-        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
         verify(ctx).status(200);
-        verify(ctx).result(anyString());
+        ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
+        verify(ctx).result(resultCaptor.capture());
+
+        JsonNode node = Json.MAPPER.readTree(resultCaptor.getValue());
+        assertTrue(node.path("ok").asBoolean());
+        assertEquals("AIProxyOauth", node.path("service").asText());
+        assertEquals("1.1.0", node.path("version").asText());
+        assertEquals(4, node.path("uptime_seconds").asLong());
+        assertFalse(node.has("auth_file"));
+        assertFalse(node.has("api_keys"));
+        assertFalse(node.has("models"));
+        assertFalse(node.has("upstream"));
     }
 
     @Test

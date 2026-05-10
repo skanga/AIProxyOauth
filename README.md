@@ -104,8 +104,17 @@ curl -X POST http://127.0.0.1:10531/v1/responses \
 | `--store` | `false` | Whether to ask upstream to store responses. The proxy itself does not persist responses locally |
 | `--allow-any-cors` | `false` | Allow browser requests from any origin |
 | `--cors-origin <origin>` | _(none)_ | Allow a specific browser origin; can be repeated or comma-separated |
+| `--log-requests` | `false` | Log full proxied request/response metadata to disk with sensitive headers redacted |
+| `--request-log-dir <path>` | `./logs/requests` | Directory for `--log-requests` output |
+| `--forward-prompt-cache-headers` | `false` | Experimental: forward `prompt_cache_key` as upstream `conversation_id` and `session_id` headers |
+| `--codex-instructions <mode>` | `configured` | Instruction source: `configured` or `latest-codex` |
+| `--codex-instructions-cache-dir <path>` | `./cache/codex-instructions` | Cache directory for `latest-codex` instructions |
 | `--help` | | Show help and exit |
 | `--version` | | Show version and exit |
+
+**Request logging warning:** `--log-requests` may write prompts, tool outputs, file paths, and other sensitive body content to disk. Authorization, API key, cookie, token, secret, and key-like headers are redacted case-insensitively, but log files should still be protected.
+
+The CLI also prints a simple access-log line for each request, similar to a web server log. It includes timestamp, method, path, status, duration, request ID, stream/sync mode when known, request content length, response status, and response byte count. It does not include headers, query strings, request bodies, API keys, or OAuth tokens.
 
 ### Examples
 
@@ -127,6 +136,9 @@ java -jar AIProxyOauth-1.0.0.jar --api-key sk-proxy-a3f9c2d1e4b5f6a7b8c9d0e1f2a3
 
 # Require clients to present a key (from file)
 java -jar AIProxyOauth-1.0.0.jar --api-keys-file /path/to/keys.txt
+
+# Enable redacted request logs
+java -jar AIProxyOauth-1.0.0.jar --log-requests --request-log-dir ./logs/requests
 ```
 
 ## API Key Enforcement
@@ -210,11 +222,16 @@ The proxy stores sensitive OAuth tokens in `auth.json`. On the first write (or r
 
 ### `GET /health`
 
-Returns server health status.
+Returns liveness/status information that is safe for unauthenticated callers.
 
 **Response:**
 ```json
-{"ok": true, "replay_state": "stateless"}
+{
+  "ok": true,
+  "service": "AIProxyOauth",
+  "version": "1.1.0",
+  "uptime_seconds": 1234
+}
 ```
 
 ### `GET /v1/models`
@@ -248,6 +265,8 @@ Internally, chat completions are sent to the upstream Responses API as a stream.
 - `tools` — function tool definitions
 - `tool_choice` — `"auto"`, `"none"`, `"required"`, or `{"type":"function","function":{"name":"..."}}`
 - `reasoning_effort` — `"low"`, `"medium"`, or `"high"`
+
+Model aliases can set backend model and reasoning effort together. For example, `gpt-5.2-codex-xhigh` is forwarded as `model: "gpt-5.2-codex"` with `reasoning.effort: "xhigh"` when no explicit `reasoning_effort` is provided. Unsupported reasoning values are clamped before forwarding: `minimal` becomes `low`, `none` is upgraded for Codex models, unsupported `xhigh` becomes `high`, and Codex Mini is limited to `medium` or `high`.
 
 **Non-streaming response:**
 ```json
@@ -300,6 +319,14 @@ java -jar AIProxyOauth-1.0.0.jar \
 The proxy does not persist responses, input items, or conversations locally. `previous_response_id` and `item_reference` are expanded only from the bounded in-memory same-process replay cache when available; otherwise the request is forwarded as-is and the upstream service decides whether it can resolve the reference.
 
 `store` is forwarded upstream but does not enable local storage. Both streaming and non-streaming Responses can populate the bounded in-memory replay cache after a completed response event is seen.
+
+When the effective request is stateless (`store:false`, including the default), the proxy removes unresolved `item_reference` entries, strips item `id` fields, and converts orphaned tool output items into assistant messages before forwarding. This avoids upstream `store:false` lookup errors while preserving useful context.
+
+If `--forward-prompt-cache-headers` is enabled and the normalized request contains `prompt_cache_key`, the proxy also sends that value as upstream `conversation_id` and `session_id` headers. The original body field is preserved. This is experimental and defaults to off.
+
+Usage-limit style upstream `404` responses containing `usage_limit_reached`, `usage_not_included`, `rate_limit_exceeded`, or `usage limit` are returned to clients as `429` errors.
+
+`--codex-instructions latest-codex` enables optional model-family instruction lookup with a 15-minute cache and stale-cache fallback. The default `configured` mode uses the configured instructions exactly as before and performs no instruction fetch.
 
 ## Authentication
 

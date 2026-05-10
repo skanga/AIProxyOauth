@@ -3,6 +3,9 @@ package com.aiproxyoauth.server;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.aiproxyoauth.config.ServerConfig;
+import com.aiproxyoauth.logging.RequestLogger;
+import com.aiproxyoauth.model.CodexInstructionsProvider;
+import com.aiproxyoauth.model.ModelAliasResolver;
 import com.aiproxyoauth.sse.SseCollector;
 import com.aiproxyoauth.state.ResponsesState;
 import com.aiproxyoauth.transport.CodexHttpClient;
@@ -31,6 +34,11 @@ public class ResponsesHandler implements Handler {
     private final CodexHttpClient client;
     private final ServerConfig config;
     private final UsageTracker usageTracker;
+    private final RequestLogger requestLogger;
+    private final CodexInstructionsProvider instructionsProvider;
+    private final ResponsesRequestSanitizer requestSanitizer = new ResponsesRequestSanitizer();
+    private final ModelAliasResolver modelAliasResolver = new ModelAliasResolver();
+    private final UpstreamErrorMapper upstreamErrorMapper = new UpstreamErrorMapper();
     private final Map<String, ResponsesState> replayStates = Collections.synchronizedMap(
             new LinkedHashMap<>(16, 0.75f, true) {
                 @Override
@@ -40,9 +48,18 @@ public class ResponsesHandler implements Handler {
             });
 
     public ResponsesHandler(CodexHttpClient client, ServerConfig config, UsageTracker usageTracker) {
+        this(client, config, usageTracker,
+                new RequestLogger(false, java.nio.file.Path.of(config.requestLogDir())),
+                new CodexInstructionsProvider(config.instructions()));
+    }
+
+    public ResponsesHandler(CodexHttpClient client, ServerConfig config, UsageTracker usageTracker,
+                            RequestLogger requestLogger, CodexInstructionsProvider instructionsProvider) {
         this.client = client;
         this.config = config;
         this.usageTracker = usageTracker;
+        this.requestLogger = requestLogger;
+        this.instructionsProvider = instructionsProvider;
     }
 
     @Override
@@ -51,7 +68,9 @@ public class ResponsesHandler implements Handler {
     }
 
     public void create(Context ctx) throws Exception {
+        String requestId = shouldUseRequestContext() ? requestId(ctx) : requestLogger.nextRequestId();
         String bodyStr = ctx.body();
+        requestLogger.logInbound(requestId, ctx, bodyStr);
         JsonNode body = MAPPER.readTree(bodyStr);
 
         if (body == null || !body.isObject()) {
@@ -60,26 +79,31 @@ public class ResponsesHandler implements Handler {
         }
 
         boolean wantsStream = body.path("stream").asBoolean(false);
+        AccessLogFields.mode(ctx, wantsStream ? "stream" : "sync");
 
         // Expand previous_response_id and item_reference references before forwarding
         ResponsesState state = replayStateFor(ctx);
         ObjectNode expanded = state.expandRequestBody((ObjectNode) body);
 
         // Normalize body
-        ObjectNode normalized = normalizeBody(expanded);
+        ObjectNode normalized = requestSanitizer.sanitize(normalizeBody(expanded), config.store());
+        String promptCacheKey = config.forwardPromptCacheHeaders()
+                ? normalized.path("prompt_cache_key").asText(null)
+                : null;
 
         // Forward to upstream
-        HttpResponse<InputStream> upstream = client.request(
-                "/responses", "POST",
-                MAPPER.writeValueAsString(normalized),
-                Map.of("Content-Type", "application/json"));
+        HttpResponse<InputStream> upstream = sendUpstream(normalized, requestId, promptCacheKey);
+        AccessLogFields.upstreamStatus(ctx, upstream.statusCode());
 
         if (upstream.statusCode() < 200 || upstream.statusCode() >= 300) {
             try (InputStream is = upstream.body()) {
                 String rawBody = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-                ctx.status(upstream.statusCode());
+                UpstreamErrorMapper.MappedUpstreamError mapped = upstreamErrorMapper.map(upstream.statusCode(), rawBody);
+                requestLogger.logUpstreamResponse(requestId, mapped.statusCode(), responseHeaders(upstream), mapped.body());
+                ctx.status(mapped.statusCode());
                 ctx.contentType(JsonHelper.JSON_CONTENT_TYPE);
-                ctx.result(JsonHelper.toUpstreamErrorBody(rawBody, upstream.statusCode()));
+                AccessLogFields.responseBytes(ctx, mapped.body().getBytes(StandardCharsets.UTF_8).length);
+                ctx.result(mapped.body());
             }
             return;
         }
@@ -94,6 +118,7 @@ public class ResponsesHandler implements Handler {
                 int bytesRead;
                 while ((bytesRead = is.read(buffer)) != -1) {
                     os.write(buffer, 0, bytesRead);
+                    AccessLogFields.addResponseBytes(ctx, bytesRead);
                     recorder.accept(buffer, bytesRead);
                     os.flush();
                 }
@@ -114,16 +139,67 @@ public class ResponsesHandler implements Handler {
     private ObjectNode normalizeBody(ObjectNode body) {
         ObjectNode normalized = body.deepCopy();
         normalized.put("stream", true);
+        String requestedModel = normalized.path("model").asText(ServerConfig.DEFAULT_MODEL);
+        ModelAliasResolver.ResolvedModel resolvedModel = modelAliasResolver.resolve(requestedModel);
+        if (resolvedModel.model() != null && !resolvedModel.model().isBlank()) {
+            normalized.put("model", resolvedModel.model());
+        }
 
         if (!normalized.has("instructions") || !normalized.get("instructions").isTextual()) {
-            normalized.put("instructions", config.instructions());
+            normalized.put("instructions", instructionsProvider.instructionsForModel(normalized.path("model").asText()));
         }
 
         if (!normalized.has("store")) {
             normalized.put("store", config.store());
         }
 
+        String aliasEffort = resolvedModel.reasoningEffort();
+        JsonNode reasoningNode = normalized.get("reasoning");
+        ObjectNode reasoning = reasoningNode != null && reasoningNode.isObject()
+                ? ((ObjectNode) reasoningNode).deepCopy()
+                : MAPPER.createObjectNode();
+        String requestedEffort = reasoning.path("effort").asText(aliasEffort);
+        String clampedEffort = modelAliasResolver.clampReasoningEffort(normalized.path("model").asText(), requestedEffort);
+        if (clampedEffort != null) {
+            reasoning.put("effort", clampedEffort);
+            normalized.set("reasoning", reasoning);
+        }
+
         return normalized;
+    }
+
+    private HttpResponse<InputStream> sendUpstream(ObjectNode normalized, String requestId, String promptCacheKey)
+            throws Exception {
+        String payload = MAPPER.writeValueAsString(normalized);
+        if (shouldUseRequestContext()) {
+            return client.request(
+                    "/responses", "POST",
+                    payload,
+                    Map.of("Content-Type", "application/json"),
+                    requestId,
+                    promptCacheKey);
+        }
+        return client.request(
+                "/responses", "POST",
+                payload,
+                Map.of("Content-Type", "application/json"));
+    }
+
+    private boolean shouldUseRequestContext() {
+        return config.fullRequestLogging() || config.forwardPromptCacheHeaders();
+    }
+
+    private static <T> Map<String, List<String>> responseHeaders(HttpResponse<T> response) {
+        return response.headers() == null ? Map.of() : response.headers().map();
+    }
+
+    private String requestId(Context ctx) {
+        String requestId = ctx.attribute("requestId");
+        if (requestId == null || requestId.isBlank()) {
+            requestId = requestLogger.nextRequestId();
+            ctx.attribute("requestId", requestId);
+        }
+        return requestId;
     }
 
     private boolean recordStreamingCompletion(

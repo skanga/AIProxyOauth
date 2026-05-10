@@ -118,4 +118,13 @@ class ServerConfigTest {
         assertThrows(UnsupportedOperationException.class,
                 () -> config.allowedCorsOrigins().add("http://three.example"));
     }
+
+    @Test void requestLoggingDefaultsAreConservative() {
+        ServerConfig config = minimal(Map.of());
+
+        assertFalse(config.fullRequestLogging());
+        assertNotNull(config.requestLogDir());
+        assertFalse(config.requestLogDir().isBlank());
+        assertFalse(config.forwardPromptCacheHeaders());
+    }
 }

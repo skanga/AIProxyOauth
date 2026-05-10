@@ -8,6 +8,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Map;
 
@@ -55,5 +56,25 @@ class CodexHttpClientTest {
         
         assertEquals(200, resp.statusCode());
         assertNotNull(resp.body());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void request_withPromptCacheKey_addsConversationHeaders() throws Exception {
+        ServerConfig config = new ServerConfig("127.0.0.1", 10531, null, "0.1", "http://base", null, null, null, "", false, Map.of(), null);
+        when(authManager.getAuthHeaders()).thenReturn(Map.of("Authorization", "Bearer token"));
+
+        HttpResponse<java.io.InputStream> mockResponse = mock(HttpResponse.class);
+        when(mockResponse.statusCode()).thenReturn(200);
+        when(httpClient.send(any(), any(HttpResponse.BodyHandler.class))).thenReturn(mockResponse);
+
+        CodexHttpClient codexClient = new CodexHttpClient(config, httpClient, authManager);
+        codexClient.request("/test", "POST", "body", Map.of("X-Extra", "value"), "req_test", "cache-123");
+
+        var requestCaptor = org.mockito.ArgumentCaptor.forClass(HttpRequest.class);
+        verify(httpClient).send(requestCaptor.capture(), any(HttpResponse.BodyHandler.class));
+        HttpRequest request = requestCaptor.getValue();
+        assertEquals("cache-123", request.headers().firstValue("conversation_id").orElseThrow());
+        assertEquals("cache-123", request.headers().firstValue("session_id").orElseThrow());
     }
 }

@@ -125,7 +125,15 @@ AIProxyOauth/
 
 ### config
 
-**`ServerConfig.java`** — A Java `record` holding all runtime configuration. Immutable after construction. Defines default constants for host, port, base URL, OAuth client ID, and issuer. The `apiKeys` field (`Set<String>`) holds the set of valid client API keys; an empty set means open mode (no enforcement). The `KEY_PREFIX` constant (`"sk-proxy-"`) is the shared prefix for generated keys. The compact constructor normalises `null` to `Set.of()` and wraps the result in `Set.copyOf()` to guarantee immutability.
+**`ServerConfig.java`** - A Java `record` holding immutable runtime configuration, including host/port, OAuth settings, API keys, CORS, request logging, prompt-cache forwarding, and Codex instruction options.
+
+`ServerConfig` also carries compatibility and diagnostics flags: request logging, prompt-cache header forwarding, and optional Codex instruction source/cache settings. Full request logging defaults off because request bodies can contain prompts, tool outputs, paths, and other sensitive data.
+
+### logging
+
+`RequestLogger` is an opt-in JSON request logger. It logs inbound and upstream request/response metadata only when enabled, caps body capture, marks truncation, and redacts sensitive headers case-insensitively (`Authorization`, API keys, cookies, token/secret/key-like headers). Logging failures are warnings and must not fail proxied requests.
+
+`ProxyServer` also prints a default one-line access log to the CLI for each request. That log is intentionally minimal: timestamp, method, path, status, duration, request ID, stream/sync mode when known, request content length, response status, and response byte count. Do not add headers, query strings, bodies, API keys, or OAuth material to the access log.
 
 ### auth
 
@@ -197,6 +205,10 @@ Uses `LinkedHashMap` with `removeEldestEntry` for automatic LRU eviction. All pu
 
 Both caches use double-checked locking with `ReentrantLock` and `volatile` fields.
 
+**`ModelAliasResolver.java`** - Normalizes convenience aliases such as `gpt-5.2-codex-xhigh` to the backend model plus a default `reasoning.effort`. It also clamps unsupported reasoning values before forwarding, which avoids preventable upstream 400s.
+
+**`CodexInstructionsProvider.java`** - Supplies configured instructions by default. In opt-in `latest-codex` mode, it fetches model-family instructions, caches them for 15 minutes, sends conditional requests when an ETag exists, and falls back to stale cache or configured instructions on fetch failure.
+
 ### server
 
 **`JsonHelper.java`** — Utility class providing:
@@ -205,17 +217,20 @@ Both caches use double-checked locking with `ReentrantLock` and `volatile` field
 - `toUsage()` — Converts upstream usage JSON to OpenAI format (prompt/completion/total tokens, with optional detail breakdowns)
 - `setCorsHeaders()` / `setSseHeaders()` — Standard header configuration
 
-**`HealthHandler.java`** — Returns `{"ok":true,"replay_state":"stateless"}`.
+**`HealthHandler.java`** — Returns safe liveness/status fields: `ok`, `service`, `version`, and `uptime_seconds`.
 
 **`ModelsHandler.java`** — Calls `ModelResolver.resolveModels()`, formats as OpenAI model list response with `owned_by: "codex-oauth"`.
 
 **`ResponsesHandler.java`** — Passthrough to upstream `/responses` with normalization:
 1. Validates body is a JSON object
 2. Expands `previous_response_id` and `item_reference` only from bounded in-memory same-process cache when available
-3. Normalizes: forces upstream `stream=true`, sets default `instructions` and `store`
-4. Forwards to upstream
-5. If client wants streaming: pipes SSE directly
-6. If non-streaming: collects completed response via `SseCollector`, records usage, and remembers it only in memory
+3. Normalizes: forces upstream `stream=true`, sets model aliases, default `instructions`, and `store`
+4. In stateless mode, strips item IDs, removes unresolved `item_reference`, and converts orphaned tool outputs to assistant messages
+5. Optionally forwards `prompt_cache_key` as upstream conversation/session headers
+6. Forwards to upstream
+7. Maps usage-limit style upstream 404s to 429
+8. If client wants streaming: pipes SSE directly
+9. If non-streaming: collects completed response via `SseCollector`, records usage, and remembers it only in memory
 
 **`ChatCompletionsHandler.java`** — The most complex handler. See [Chat Completions Translation Layer](#chat-completions-translation-layer).
 
@@ -390,13 +405,7 @@ The project intentionally avoids durable local Responses storage. `ResponsesStat
 
 ### Adding request logging
 
-Create a logging handler that wraps existing handlers, or use Javalin's `before()`/`after()` hooks in `ProxyServer`:
-
-```java
-app.before(ctx -> {
-    System.out.println(ctx.method() + " " + ctx.path());
-});
-```
+Use the existing `RequestLogger` and keep logging opt-in. New log fields must pass through the same redaction path, and streaming response bodies must not be buffered solely for logs.
 
 ### Changing the upstream API
 

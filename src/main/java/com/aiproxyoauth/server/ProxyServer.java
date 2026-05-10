@@ -1,6 +1,8 @@
 package com.aiproxyoauth.server;
 
 import com.aiproxyoauth.config.ServerConfig;
+import com.aiproxyoauth.logging.RequestLogger;
+import com.aiproxyoauth.model.CodexInstructionsProvider;
 import com.aiproxyoauth.model.ModelResolver;
 import com.aiproxyoauth.transport.CodexHttpClient;
 import com.aiproxyoauth.usage.UsageTracker;
@@ -9,6 +11,10 @@ import io.javalin.Javalin;
 import io.javalin.http.Context;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 
 public class ProxyServer {
 
@@ -25,6 +31,16 @@ public class ProxyServer {
                     "API key enforcement is required when binding to a non-loopback host: " + config.host()
             );
         }
+        RequestLogger requestLogger = new RequestLogger(config.fullRequestLogging(), Path.of(config.requestLogDir()));
+        CodexInstructionsProvider instructionsProvider = "latest-codex".equals(config.codexInstructionsMode())
+                ? new CodexInstructionsProvider(
+                        CodexInstructionsProvider.Mode.LATEST_CODEX,
+                        config.instructions(),
+                        Path.of(config.codexInstructionsCacheDir()),
+                        Duration.ofMinutes(15),
+                        client.getHttpClient()
+                )
+                : new CodexInstructionsProvider(config.instructions());
 
         this.app = Javalin.create(javalinConfig -> {
             javalinConfig.concurrency.useVirtualThreads = true;
@@ -46,6 +62,12 @@ public class ProxyServer {
                 );
             }
 
+            javalinConfig.routes.before(ctx -> {
+                ctx.attribute(AccessLogFields.REQUEST_ID, requestLogger.nextRequestId());
+                ctx.attribute(AccessLogFields.START_NANOS, System.nanoTime());
+            });
+            javalinConfig.routes.after(ProxyServer::logAccessLine);
+
             // API key enforcement (opt-in: only when keys are configured)
             // Enforcement is evaluated once at startup. Keys can be hot-reloaded (which keys
             // are valid changes), but enforcement cannot be toggled on/off without a restart.
@@ -57,8 +79,10 @@ public class ProxyServer {
             javalinConfig.routes.get("/health", new HealthHandler());
             javalinConfig.routes.get("/v1/models", new ModelsHandler(modelResolver));
             javalinConfig.routes.get("/v1/usage", new UsageHandler(usageTracker));
-            javalinConfig.routes.post("/v1/responses", new ResponsesHandler(client, config, usageTracker));
-            javalinConfig.routes.post("/v1/chat/completions", new ChatCompletionsHandler(client, config, usageTracker));
+            javalinConfig.routes.post("/v1/responses",
+                    new ResponsesHandler(client, config, usageTracker, requestLogger, instructionsProvider));
+            javalinConfig.routes.post("/v1/chat/completions",
+                    new ChatCompletionsHandler(client, config, usageTracker, requestLogger, instructionsProvider));
 
             // Global exception handler
             javalinConfig.routes.exception(Exception.class, (e, ctx) -> {
@@ -102,6 +126,58 @@ public class ProxyServer {
         return "OPTIONS".equalsIgnoreCase(String.valueOf(ctx.method()))
                 && ctx.header("Origin") != null
                 && ctx.header("Access-Control-Request-Method") != null;
+    }
+
+    private static void logAccessLine(Context ctx) {
+        Long startNanos = ctx.attribute(AccessLogFields.START_NANOS);
+        long durationMillis = startNanos == null ? 0L : Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
+        int responseStatus = ctx.statusCode();
+        int status = accessLogStatus(ctx, responseStatus);
+        System.out.printf("%s %s %s %d %dms id=%s mode=%s status=%d req_bytes=%s resp_bytes=%s%n",
+                Instant.now(),
+                ctx.method(),
+                ctx.path(),
+                responseStatus,
+                durationMillis,
+                valueOrDefault(ctx.attribute(AccessLogFields.REQUEST_ID), "?"),
+                valueOrDefault(ctx.attribute(AccessLogFields.MODE), "internal"),
+                status,
+                getContentLength(ctx.header("Content-Length")),
+                valueOrDefault(responseBytes(ctx), "0"));
+    }
+
+    private static int accessLogStatus(Context ctx, int responseStatus) {
+        Integer upstreamStatus = ctx.attribute(AccessLogFields.UPSTREAM_STATUS);
+        return upstreamStatus != null ? upstreamStatus : responseStatus;
+    }
+
+    private static String responseBytes(Context ctx) {
+        Long recordedBytes = ctx.attribute(AccessLogFields.RESPONSE_BYTES);
+        if (recordedBytes != null) {
+            return String.valueOf(recordedBytes);
+        }
+        return getContentLength(ctx.res().getHeader("Content-Length"));
+    }
+
+    private static String getContentLength(String contentLength) {
+        if (contentLength == null || contentLength.isBlank()) {
+            return "0";
+        }
+        String trimmed = contentLength.strip();
+        for (int i = 0; i < trimmed.length(); i++) {
+            if (!Character.isDigit(trimmed.charAt(i))) {
+                return "0";
+            }
+        }
+        return trimmed;
+    }
+
+    private static String valueOrDefault(Object value, String defaulVal) {
+        if (value == null) {
+            return defaulVal;
+        }
+        String text = String.valueOf(value);
+        return text.isBlank() ? "-" : text;
     }
 
     public void start() {

@@ -1,10 +1,13 @@
 package com.aiproxyoauth.server;
 
 import com.aiproxyoauth.config.ServerConfig;
+import com.aiproxyoauth.logging.RequestLogger;
+import com.aiproxyoauth.model.CodexInstructionsProvider;
 import com.aiproxyoauth.transport.CodexHttpClient;
 import com.aiproxyoauth.usage.UsageTracker;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.javalin.http.Context;
+import io.javalin.http.HandlerType;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -83,6 +86,32 @@ class ResponsesHandlerTest {
         );
     }
 
+    private static ServerConfig configWithRequestLogging(Path logDir) {
+        return new ServerConfig(
+                "127.0.0.1", 10531,
+                null, "0.111.0",
+                ServerConfig.DEFAULT_BASE_URL,
+                null, null, null,
+                "instr", false,
+                Map.of(), null,
+                false, java.util.List.of(),
+                true, logDir.toString(), false
+        );
+    }
+
+    private static ServerConfig configWithPromptCacheForwarding() {
+        return new ServerConfig(
+                "127.0.0.1", 10531,
+                null, "0.111.0",
+                ServerConfig.DEFAULT_BASE_URL,
+                null, null, null,
+                "instr", false,
+                Map.of(), null,
+                false, java.util.List.of(),
+                false, null, true
+        );
+    }
+
     @Test
     @SuppressWarnings("unchecked")
     void handle_previousResponseId_accepted_andExpanded() throws Exception {
@@ -101,6 +130,68 @@ class ResponsesHandlerTest {
 
         // No 400 — request forwarded successfully
         verify(ctx).status(200);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handle_loggingEnabled_writesRedactedInboundLog() throws Exception {
+        Path logDir = tempDir.resolve("request-logs");
+        when(ctx.body()).thenReturn("{\"input\":[]}");
+        when(ctx.method()).thenReturn(HandlerType.POST);
+        when(ctx.path()).thenReturn("/v1/responses");
+        when(ctx.statusCode()).thenReturn(200);
+        when(ctx.headerMap()).thenReturn(Map.of(
+                "Authorization", "Bearer sk-proxy-secret",
+                "Content-Type", "application/json"
+        ));
+
+        HttpResponse<InputStream> mockResponse = response("""
+                data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":1,"output_tokens":1}}}
+
+                """);
+        when(client.request(eq("/responses"), eq("POST"), anyString(), any(), anyString(), isNull()))
+                .thenReturn(mockResponse);
+
+        ServerConfig config = configWithRequestLogging(logDir);
+        ResponsesHandler handler = new ResponsesHandler(
+                client,
+                config,
+                usageTracker,
+                new RequestLogger(true, logDir),
+                new CodexInstructionsProvider(config.instructions())
+        );
+        handler.handle(ctx);
+
+        String combinedLogs = Files.list(logDir)
+                .map(path -> {
+                    try {
+                        return Files.readString(path);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .reduce("", String::concat);
+        assertTrue(combinedLogs.contains("[REDACTED]"));
+        assertFalse(combinedLogs.contains("sk-proxy-secret"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handle_promptCacheForwardingEnabled_passesPromptCacheKeyToClient() throws Exception {
+        when(ctx.body()).thenReturn("{\"prompt_cache_key\":\"cache-abc\",\"input\":[]}");
+
+        HttpResponse<InputStream> mockResponse = response("""
+                data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":1,"output_tokens":1}}}
+
+                """);
+        when(client.request(eq("/responses"), eq("POST"), anyString(), any(), anyString(), eq("cache-abc")))
+                .thenReturn(mockResponse);
+
+        ResponsesHandler handler = new ResponsesHandler(client, configWithPromptCacheForwarding(), usageTracker);
+        handler.handle(ctx);
+
+        verify(client).request(eq("/responses"), eq("POST"), contains("\"prompt_cache_key\":\"cache-abc\""), any(),
+                anyString(), eq("cache-abc"));
     }
 
     @Test
@@ -173,18 +264,18 @@ class ResponsesHandlerTest {
         assertFalse(secondForwarded.has("previous_response_id"));
         assertTrue(secondForwarded.path("input").isArray());
         assertEquals(3, secondForwarded.path("input").size());
-        assertEquals("in_1", secondForwarded.path("input").get(0).path("id").asText());
-        assertEquals("out_1", secondForwarded.path("input").get(1).path("id").asText());
-        assertEquals("in_2", secondForwarded.path("input").get(2).path("id").asText());
+        assertFalse(secondForwarded.path("input").get(0).has("id"));
+        assertFalse(secondForwarded.path("input").get(1).has("id"));
+        assertFalse(secondForwarded.path("input").get(2).has("id"));
     }
 
     @Test
     @SuppressWarnings("unchecked")
     void replayCache_isScopedByApiKeyName() throws Exception {
-        when(ctx.attribute("keyFingerprint")).thenReturn(null);
-        when(ctx.attribute("adminKeyFingerprint")).thenReturn(null);
-        when(ctx.attribute("isAdmin")).thenReturn(null);
-        when(ctx.attribute("keyName")).thenReturn("alice", "alice", "bob", "bob");
+        lenient().when(ctx.attribute("keyFingerprint")).thenReturn(null);
+        lenient().when(ctx.attribute("adminKeyFingerprint")).thenReturn(null);
+        lenient().when(ctx.attribute("isAdmin")).thenReturn(null);
+        lenient().when(ctx.attribute("keyName")).thenReturn("alice", "alice", "bob", "bob");
         when(ctx.body()).thenReturn(
                 """
                 {"input":[{"id":"alice_in","type":"message","role":"user"}]}
@@ -222,7 +313,7 @@ class ResponsesHandlerTest {
         assertEquals("resp_1", secondForwarded.path("previous_response_id").asText());
         assertTrue(secondForwarded.path("input").isArray());
         assertEquals(1, secondForwarded.path("input").size());
-        assertEquals("bob_in", secondForwarded.path("input").get(0).path("id").asText());
+        assertFalse(secondForwarded.path("input").get(0).has("id"));
     }
 
     @Test
@@ -251,6 +342,9 @@ class ResponsesHandlerTest {
         handler.handle(ctx);
 
         assertEquals(sseData, streamed.toString(StandardCharsets.UTF_8));
+        verify(ctx).attribute(AccessLogFields.MODE, "stream");
+        verify(ctx).attribute(AccessLogFields.UPSTREAM_STATUS, 200);
+        verify(ctx).attribute(AccessLogFields.RESPONSE_BYTES, (long) sseData.getBytes(StandardCharsets.UTF_8).length);
         verify(usageTracker).record(any(), eq(11L), eq(13L));
     }
 
@@ -283,10 +377,10 @@ class ResponsesHandlerTest {
     @Test
     @SuppressWarnings("unchecked")
     void replayCache_prefersKeyFingerprintOverKeyName() throws Exception {
-        when(ctx.attribute("isAdmin")).thenReturn(null);
-        when(ctx.attribute("keyFingerprint")).thenReturn("fp-alice", "fp-bob");
-        when(ctx.attribute("adminKeyFingerprint")).thenReturn(null);
-        when(ctx.attribute("keyName")).thenReturn("same-key-name", "same-key-name", "same-key-name", "same-key-name");
+        lenient().when(ctx.attribute("isAdmin")).thenReturn(null);
+        lenient().when(ctx.attribute("keyFingerprint")).thenReturn("fp-alice", "fp-bob");
+        lenient().when(ctx.attribute("adminKeyFingerprint")).thenReturn(null);
+        lenient().when(ctx.attribute("keyName")).thenReturn("same-key-name", "same-key-name", "same-key-name", "same-key-name");
         when(ctx.body()).thenReturn(
                 """
                 {"input":[{"id":"alice_in","type":"message","role":"user"}]}
@@ -317,15 +411,15 @@ class ResponsesHandlerTest {
         JsonNode secondForwarded = MAPPER.readTree(bodyCaptor.getAllValues().get(1));
         assertEquals("resp_1", secondForwarded.path("previous_response_id").asText());
         assertEquals(1, secondForwarded.path("input").size());
-        assertEquals("bob_in", secondForwarded.path("input").get(0).path("id").asText());
+        assertFalse(secondForwarded.path("input").get(0).has("id"));
     }
 
     @Test
     @SuppressWarnings("unchecked")
     void replayCache_prefersAdminFingerprintForAdminRequests() throws Exception {
-        when(ctx.attribute("keyFingerprint")).thenReturn(null);
-        when(ctx.attribute("adminKeyFingerprint")).thenReturn("admin-fp", "admin-fp");
-        when(ctx.attribute("isAdmin")).thenReturn(true, true);
+        lenient().when(ctx.attribute("keyFingerprint")).thenReturn(null);
+        lenient().when(ctx.attribute("adminKeyFingerprint")).thenReturn("admin-fp", "admin-fp");
+        lenient().when(ctx.attribute("isAdmin")).thenReturn(true, true);
         when(ctx.body()).thenReturn(
                 """
                 {"input":[{"id":"admin_in","type":"message","role":"user"}]}
@@ -356,8 +450,8 @@ class ResponsesHandlerTest {
         JsonNode secondForwarded = MAPPER.readTree(bodyCaptor.getAllValues().get(1));
         assertFalse(secondForwarded.has("previous_response_id"));
         assertEquals(2, secondForwarded.path("input").size());
-        assertEquals("admin_in", secondForwarded.path("input").get(0).path("id").asText());
-        assertEquals("admin_out", secondForwarded.path("input").get(1).path("id").asText());
+        assertFalse(secondForwarded.path("input").get(0).has("id"));
+        assertFalse(secondForwarded.path("input").get(1).has("id"));
     }
 
     @Test
