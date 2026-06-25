@@ -16,6 +16,8 @@ public final class ResponsesRequestSanitizer {
 
     public ObjectNode sanitize(ObjectNode body, boolean defaultStore) {
         ObjectNode sanitized = body.deepCopy();
+        sanitized.remove("max_output_tokens");
+
         boolean store = sanitized.has("store") ? sanitized.path("store").asBoolean(false) : defaultStore;
         if (store) {
             return sanitized;

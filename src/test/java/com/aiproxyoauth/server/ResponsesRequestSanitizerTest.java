@@ -70,6 +70,24 @@ class ResponsesRequestSanitizerTest {
     }
 
     @Test
+    void sanitize_removesUnsupportedMaxOutputTokensEvenWhenStoreTrue() throws Exception {
+        ObjectNode body = object("""
+                {
+                  "store": true,
+                  "max_output_tokens": 100,
+                  "input": [
+                    {"id":"msg_1","type":"message","role":"user","content":"hi"}
+                  ]
+                }
+                """);
+
+        ObjectNode sanitized = sanitizer.sanitize(body, false);
+
+        assertFalse(sanitized.has("max_output_tokens"));
+        assertEquals(body.path("input"), sanitized.path("input"));
+    }
+
+    @Test
     void sanitize_missingInput_returnsCopyUnchanged() throws Exception {
         ObjectNode body = object("""
                 {"store": false, "metadata": {"request": "abc"}}

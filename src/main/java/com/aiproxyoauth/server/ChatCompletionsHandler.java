@@ -195,12 +195,6 @@ public class ChatCompletionsHandler implements Handler {
         if (chatBody.has("top_p") && !chatBody.get("top_p").isNull()) {
             upstream.set("top_p", chatBody.get("top_p"));
         }
-        // max_completion_tokens (newer SDK) takes precedence over deprecated max_tokens
-        if (chatBody.has("max_completion_tokens") && !chatBody.get("max_completion_tokens").isNull()) {
-            upstream.put("max_output_tokens", chatBody.get("max_completion_tokens").asInt());
-        } else if (chatBody.has("max_tokens") && !chatBody.get("max_tokens").isNull()) {
-            upstream.put("max_output_tokens", chatBody.get("max_tokens").asInt());
-        }
 
         // Tools
         if (chatBody.has("tools") && chatBody.get("tools").isArray()) {

@@ -215,7 +215,7 @@ class ChatCompletionsHandlerTest {
         assertEquals("You are helpful", upstream.path("instructions").asText());
     }
 
-    @Test void maxTokens_mappedToMaxOutputTokens() throws Exception {
+    @Test void maxTokens_notForwardedAsUnsupportedMaxOutputTokens() throws Exception {
         HttpResponse<InputStream> sseResp = sseResponse(200, COMPLETED_TEXT_SSE);
         when(client.request(anyString(), anyString(), anyString(), any())).thenReturn(sseResp);
 
@@ -234,10 +234,10 @@ class ChatCompletionsHandlerTest {
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
         verify(client).request(anyString(), anyString(), bodyCaptor.capture(), any());
         JsonNode upstream = MAPPER.readTree(bodyCaptor.getValue());
-        assertEquals(100, upstream.path("max_output_tokens").asInt());
+        assertFalse(upstream.has("max_output_tokens"));
     }
 
-    @Test void maxCompletionTokens_takesPrecedenceOverMaxTokens() throws Exception {
+    @Test void maxCompletionTokens_notForwardedAsUnsupportedMaxOutputTokens() throws Exception {
         HttpResponse<InputStream> sseResp = sseResponse(200, COMPLETED_TEXT_SSE);
         when(client.request(anyString(), anyString(), anyString(), any())).thenReturn(sseResp);
 
@@ -257,7 +257,7 @@ class ChatCompletionsHandlerTest {
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
         verify(client).request(anyString(), anyString(), bodyCaptor.capture(), any());
         JsonNode upstream = MAPPER.readTree(bodyCaptor.getValue());
-        assertEquals(200, upstream.path("max_output_tokens").asInt());
+        assertFalse(upstream.has("max_output_tokens"));
     }
 
     @Test void reasoningEffort_mappedToReasoningObject() throws Exception {
