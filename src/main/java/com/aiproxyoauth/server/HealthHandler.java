@@ -9,7 +9,7 @@ import java.util.function.LongSupplier;
 
 public class HealthHandler implements Handler {
     private static final String SERVICE_NAME = "AIProxyOauth";
-    private static final String FALLBACK_VERSION = "1.1.0";
+    private static final String FALLBACK_VERSION = "1.2.0";
 
     private final LongSupplier nanoTime;
     private final long startedAtNanos;

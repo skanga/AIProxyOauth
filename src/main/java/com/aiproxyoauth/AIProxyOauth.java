@@ -38,7 +38,7 @@ import java.util.concurrent.Callable;
         name = "AIProxyOauth",
         description = "Local HTTP proxy server exposing OpenAI-compatible endpoints via ChatGPT OAuth tokens.",
         mixinStandardHelpOptions = true,
-        version = "AIProxyOauth 1.0.0"
+        version = "AIProxyOauth 1.2.0"
 )
 public class AIProxyOauth implements Callable<Integer> {
 

@@ -21,12 +21,12 @@ or
 mvn clean package -DskipTests
 ```
 
-This produces a fat JAR at `target/AIProxyOauth-1.1.1.jar`.
+This produces a fat JAR at `target/AIProxyOauth-1.2.0.jar`.
 
 ### Run
 
 ```bash
-java -jar target/AIProxyOauth-1.1.1.jar
+java -jar target/AIProxyOauth-1.2.0.jar
 ```
 
 The server starts on `http://127.0.0.1:10531/v1` by default.
@@ -120,25 +120,25 @@ The CLI also prints a simple access-log line for each request, similar to a web 
 
 ```bash
 # Bind to all interfaces on port 8080
-java -jar AIProxyOauth-1.1.1.jar --host 0.0.0.0 --port 8080
+java -jar AIProxyOauth-1.2.0.jar --host 0.0.0.0 --port 8080
 
 # Expose only specific models
-java -jar AIProxyOauth-1.1.1.jar --models gpt-5.4,gpt-5.5
+java -jar AIProxyOauth-1.2.0.jar --models gpt-5.4,gpt-5.5
 
 # Use a custom auth file location
-java -jar AIProxyOauth-1.1.1.jar --oauth-file /path/to/auth.json
+java -jar AIProxyOauth-1.2.0.jar --oauth-file /path/to/auth.json
 
 # Generate a new API key for a client
-java -jar AIProxyOauth-1.1.1.jar --generate-key
+java -jar AIProxyOauth-1.2.0.jar --generate-key
 
 # Require clients to present a key (inline)
-java -jar AIProxyOauth-1.1.1.jar --api-key sk-proxy-a3f9c2d1e4b5f6a7b8c9d0e1f2a3b4c5
+java -jar AIProxyOauth-1.2.0.jar --api-key sk-proxy-a3f9c2d1e4b5f6a7b8c9d0e1f2a3b4c5
 
 # Require clients to present a key (from file)
-java -jar AIProxyOauth-1.1.1.jar --api-keys-file /path/to/keys.txt
+java -jar AIProxyOauth-1.2.0.jar --api-keys-file /path/to/keys.txt
 
 # Enable redacted request logs
-java -jar AIProxyOauth-1.1.1.jar --log-requests --request-log-dir ./logs/requests
+java -jar AIProxyOauth-1.2.0.jar --log-requests --request-log-dir ./logs/requests
 ```
 
 ## API Key Enforcement
@@ -151,11 +151,11 @@ By default the proxy runs in **open mode** — any client on the network can mak
 
 ```bash
 # Without a name (bare key)
-java -jar AIProxyOauth-1.1.1.jar --generate-key
+java -jar AIProxyOauth-1.2.0.jar --generate-key
 # sk-proxy-a3f9c2d1e4b5f6a7b8c9d0e1f2a3b4c5
 
 # With a name — output is ready to paste into a keys file or --api-key
-java -jar AIProxyOauth-1.1.1.jar --generate-key cursor
+java -jar AIProxyOauth-1.2.0.jar --generate-key cursor
 # cursor:sk-proxy-a3f9c2d1e4b5f6a7b8c9d0e1f2a3b4c5
 ```
 
@@ -168,10 +168,10 @@ Each key can optionally carry a human-readable name using the `name:key` format.
 **Inline (one or more, comma-separated):**
 ```bash
 # Named keys
-java -jar AIProxyOauth-1.1.1.jar --api-key cursor:sk-proxy-a3f9c2d1e4b5f6a7b8c9d0e1f2a3b4c5
+java -jar AIProxyOauth-1.2.0.jar --api-key cursor:sk-proxy-a3f9c2d1e4b5f6a7b8c9d0e1f2a3b4c5
 
 # Multiple, mixed named/unnamed
-java -jar AIProxyOauth-1.1.1.jar --api-key cursor:sk-proxy-a3f9...,vscode:sk-proxy-1a2b...
+java -jar AIProxyOauth-1.2.0.jar --api-key cursor:sk-proxy-a3f9...,vscode:sk-proxy-1a2b...
 ```
 
 **From a file (one entry per line; blank lines and `#` comments are ignored):**
@@ -183,7 +183,7 @@ admin:sk-proxy-99887766554433221100aabbccddeeff    # promoted to --admin-key
 sk-proxy-ffeeddccbbaa00112233445566778899          # unnamed — key used as its own name
 ```
 ```bash
-java -jar AIProxyOauth-1.1.1.jar --api-keys-file keys.txt
+java -jar AIProxyOauth-1.2.0.jar --api-keys-file keys.txt
 ```
 
 If an entry in the file uses the reserved name `admin`, it is automatically promoted to the admin key (equivalent to `--admin-key`). If both are provided, the CLI flag takes precedence.
@@ -229,7 +229,7 @@ Returns liveness/status information that is safe for unauthenticated callers.
 {
   "ok": true,
   "service": "AIProxyOauth",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "uptime_seconds": 1234
 }
 ```
@@ -314,7 +314,7 @@ Token counts are tracked for `POST /v1/chat/completions` and `POST /v1/responses
 Each key sees only its own stats. The proxy owner can configure an `--admin-key` to see all users' stats:
 
 ```bash
-java -jar AIProxyOauth-1.1.1.jar \
+java -jar AIProxyOauth-1.2.0.jar \
   --api-key cursor:sk-proxy-... \
   --api-key vscode:sk-proxy-... \
   --admin-key sk-proxy-...
