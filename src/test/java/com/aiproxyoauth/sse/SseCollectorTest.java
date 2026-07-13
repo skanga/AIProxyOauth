@@ -25,4 +25,43 @@ class SseCollectorTest {
         InputStream is = new ByteArrayInputStream(data.getBytes());
         assertThrows(IOException.class, () -> SseCollector.collectCompletedResponse(is));
     }
+
+    @Test
+    void collectCompletedResponse_recoversFunctionCallFromStreamEvents() throws Exception {
+        String data = """
+                data: {"type":"response.output_item.added","item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"python-eval","arguments":""}}
+
+                data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\\"code\\":"}
+
+                data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"\\"factorial(100)\\"}"}
+
+                data: {"type":"response.completed","response":{"status":"completed","output":[],"usage":{"output_tokens":27}}}
+
+                """;
+
+        JsonNode response = SseCollector.collectCompletedResponse(
+                new ByteArrayInputStream(data.getBytes()));
+
+        JsonNode call = response.path("output").get(0);
+        assertEquals("function_call", call.path("type").asText());
+        assertEquals("call_1", call.path("call_id").asText());
+        assertEquals("python-eval", call.path("name").asText());
+        assertEquals("{\"code\":\"factorial(100)\"}", call.path("arguments").asText());
+    }
+
+    @Test
+    void collectCompletedResponse_doesNotDuplicateFunctionCallAlreadyInCompletedOutput() throws Exception {
+        String data = """
+                data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_1","name":"fn","arguments":""}}
+
+                data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"function_call","call_id":"call_1","name":"fn","arguments":"{}"}]}}
+
+                """;
+
+        JsonNode response = SseCollector.collectCompletedResponse(
+                new ByteArrayInputStream(data.getBytes()));
+
+        assertEquals(1, response.path("output").size());
+        assertEquals("{}", response.path("output").get(0).path("arguments").asText());
+    }
 }

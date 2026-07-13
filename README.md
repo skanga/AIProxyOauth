@@ -40,7 +40,7 @@ Example:
 ```text
 OpenAI OAuth Proxy Server started
   Endpoint: http://127.0.0.1:10531/v1
-  Models:   gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.3-codex-spark, gpt-5.2
+  Models: gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex-spark, codex-auto-review
   Client API key enforcement: disabled
   Network access: Local access only
   Auth file: C:\Users\skanga\.codex\auth.json
@@ -67,22 +67,22 @@ curl http://127.0.0.1:10531/v1/models
 # Chat completion (non-streaming)
 curl -X POST http://127.0.0.1:10531/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.2","messages":[{"role":"user","content":"Hello!"}]}'
+  -d '{"model":"gpt-5.4","messages":[{"role":"user","content":"Hello!"}]}'
 
 # Chat completion (streaming)
 curl -X POST http://127.0.0.1:10531/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.2","messages":[{"role":"user","content":"Hello!"}],"stream":true}'
+  -d '{"model":"gpt-5.4","messages":[{"role":"user","content":"Hello!"}],"stream":true}'
 
 # Responses API (non-streaming)
 curl -X POST http://127.0.0.1:10531/v1/responses \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.2","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello!"}]}]}'
+  -d '{"model":"gpt-5.4","input":"Hello!"}'
 
 # Responses API (streaming)
 curl -X POST http://127.0.0.1:10531/v1/responses \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.2","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello!"}]}]}'
+  -d '{"model":"gpt-5.4","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello!"}]}]}'
 ```
 
 ## CLI Options
@@ -123,7 +123,7 @@ The CLI also prints a simple access-log line for each request, similar to a web 
 java -jar AIProxyOauth-1.1.1.jar --host 0.0.0.0 --port 8080
 
 # Expose only specific models
-java -jar AIProxyOauth-1.1.1.jar --models gpt-5.2,gpt-5.1
+java -jar AIProxyOauth-1.1.1.jar --models gpt-5.4,gpt-5.5
 
 # Use a custom auth file location
 java -jar AIProxyOauth-1.1.1.jar --oauth-file /path/to/auth.json
@@ -243,8 +243,14 @@ Returns the list of available models. Models are auto-discovered from your accou
 {
   "object": "list",
   "data": [
-    {"id": "gpt-5.2", "object": "model", "created": 0, "owned_by": "codex-oauth"},
-    {"id": "gpt-5.1", "object": "model", "created": 0, "owned_by": "codex-oauth"}
+    {"id": "gpt-5.6-sol", "object": "model", "created": 0, "owned_by": "codex-oauth"},
+    {"id": "gpt-5.6-terra", "object": "model", "created": 0, "owned_by": "codex-oauth"},
+    {"id": "gpt-5.6-luna", "object": "model", "created": 0, "owned_by": "codex-oauth"},
+    {"id": "gpt-5.5", "object": "model", "created": 0, "owned_by": "codex-oauth"},
+    {"id": "gpt-5.4", "object": "model", "created": 0, "owned_by": "codex-oauth"},
+    {"id": "gpt-5.4-mini", "object": "model", "created": 0, "owned_by": "codex-oauth"},
+    {"id": "gpt-5.3-codex-spark", "object": "model", "created": 0, "owned_by": "codex-oauth"},
+    {"id": "codex-auto-review", "object": "model", "created": 0, "owned_by": "codex-oauth"}
   ]
 }
 ```
@@ -255,8 +261,10 @@ Standard OpenAI Chat Completions API. Supports both streaming (`"stream": true`)
 
 Internally, chat completions are sent to the upstream Responses API as a stream. For non-streaming client requests, the proxy collects the upstream SSE events and returns one OpenAI-style `chat.completion` response. If a model emits text only as `response.output_text.delta` events and omits it from the final completed response object, the collector uses those deltas to populate `choices[0].message.content`.
 
+The collector also reconstructs function calls from output-item and argument events when the final completed object omits them. If a completed stream contains no recoverable text, tool call, or refusal, the proxy returns a `502 upstream_protocol_error` rather than a successful empty assistant message.
+
 **Supported request fields:**
-- `model` — model ID (default: `gpt-5.2`)
+- `model` — model ID (default: `gpt-5.5`)
 - `messages` — array of message objects (`system`, `developer`, `user`, `assistant`, `tool` roles)
 - `stream` — boolean for SSE streaming
 - `temperature`, `top_p` — sampling parameters
@@ -266,7 +274,7 @@ Internally, chat completions are sent to the upstream Responses API as a stream.
 - `tool_choice` — `"auto"`, `"none"`, `"required"`, or `{"type":"function","function":{"name":"..."}}`
 - `reasoning_effort` — `"low"`, `"medium"`, or `"high"`
 
-Model aliases can set backend model and reasoning effort together. For example, `gpt-5.2-codex-xhigh` is forwarded as `model: "gpt-5.2-codex"` with `reasoning.effort: "xhigh"` when no explicit `reasoning_effort` is provided. Unsupported reasoning values are clamped before forwarding: `minimal` becomes `low`, `none` is upgraded for Codex models, unsupported `xhigh` becomes `high`, and Codex Mini is limited to `medium` or `high`.
+Model aliases can set backend model and reasoning effort together. For example, `gpt-5.3-codex-spark-xhigh` is forwarded as `model: "gpt-5.3-codex-spark"` with `reasoning.effort: "xhigh"` when no explicit `reasoning_effort` is provided. Unsupported reasoning values are clamped before forwarding: `minimal` becomes `low`, `none` is upgraded for Codex models, unsupported `xhigh` becomes `high`, and Codex Mini is limited to `medium` or `high`.
 
 **Non-streaming response:**
 ```json
@@ -274,7 +282,7 @@ Model aliases can set backend model and reasoning effort together. For example, 
   "id": "chatcmpl_...",
   "object": "chat.completion",
   "created": 1710000000,
-  "model": "gpt-5.2",
+  "model": "gpt-5.5",
   "choices": [{
     "index": 0,
     "message": {"role": "assistant", "content": "Hello!"},
@@ -315,6 +323,8 @@ java -jar AIProxyOauth-1.1.1.jar \
 ### `POST /v1/responses`
 
 `POST /v1/responses` is a passthrough to the upstream Responses API with normalization. Requests are always sent upstream as streaming requests; if the client asked for `stream:false`, the proxy collects the upstream SSE response and returns one JSON object.
+
+`input` accepts either a string or an array of typed input items. String input is normalized to a typed user message before replay expansion. See [COMPATIBILITY.md](COMPATIBILITY.md) for the translation matrix and upstream limitations.
 
 The proxy does not persist responses, input items, or conversations locally. `previous_response_id` and `item_reference` are expanded only from the bounded in-memory same-process replay cache when available; otherwise the request is forwarded as-is and the upstream service decides whether it can resolve the reference.
 
@@ -392,13 +402,13 @@ client = OpenAI(
 )
 
 chat_response = client.chat.completions.create(
-    model="gpt-5.2",
+    model="gpt-5.5",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 print(chat_response.choices[0].message.content)
 
 responses_response = client.responses.create(
-    model="gpt-5.2",
+    model="gpt-5.5",
     input=[{
         "type": "message",
         "role": "user",
@@ -420,13 +430,13 @@ const client = new OpenAI({
 });
 
 const chatResponse = await client.chat.completions.create({
-  model: 'gpt-5.2',
+  model: 'gpt-5.5',
   messages: [{ role: 'user', content: 'Hello!' }],
 });
 console.log(chatResponse.choices[0].message.content);
 
 const responsesResponse = await client.responses.create({
-  model: 'gpt-5.2',
+  model: 'gpt-5.5',
   input: [{
     type: 'message',
     role: 'user',
@@ -442,23 +452,23 @@ console.log(responsesResponse.output_text);
 # Chat Completions, open mode
 curl http://127.0.0.1:10531/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.2","messages":[{"role":"user","content":"What is 2+2?"}]}'
+  -d '{"model":"gpt-5.5","messages":[{"role":"user","content":"What is 2+2?"}]}'
 
 # Responses API, open mode
 curl http://127.0.0.1:10531/v1/responses \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.2","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"What is 2+2?"}]}]}'
+  -d '{"model":"gpt-5.5","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"What is 2+2?"}]}]}'
 
 # Responses API, streaming
 curl http://127.0.0.1:10531/v1/responses \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.2","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Write one sentence."}]}]}'
+  -d '{"model":"gpt-5.5","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Write one sentence."}]}]}'
 
 # Enforcement mode: add the proxy API key to either endpoint
 curl http://127.0.0.1:10531/v1/chat/completions \
   -H "Authorization: Bearer sk-proxy-a3f9c2d1e4b5f6a7b8c9d0e1f2a3b4c5" \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.2","messages":[{"role":"user","content":"What is 2+2?"}]}'
+  -d '{"model":"gpt-5.5","messages":[{"role":"user","content":"What is 2+2?"}]}'
 ```
 
 ## Troubleshooting
@@ -473,7 +483,7 @@ Your `auth.json` exists but contains no valid access token. Re-run `npx @openai/
 The `id_token` in your auth file does not contain the expected account ID claim. Re-run `npx @openai/codex login`.
 
 ### Model discovery fails
-Ensure your auth tokens are valid. You can bypass discovery by specifying models explicitly: `--models gpt-5.2,gpt-5.1`.
+Ensure your auth tokens are valid. You can bypass discovery by specifying models explicitly: `--models gpt-5.5,gpt-5.4`.
 
 ### Connection refused
 Check that no other process is using port 10531, or specify a different port with `--port`.

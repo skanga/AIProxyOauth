@@ -1,6 +1,7 @@
 package com.aiproxyoauth.server;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.aiproxyoauth.config.ServerConfig;
 import com.aiproxyoauth.logging.RequestLogger;
@@ -78,12 +79,22 @@ public class ResponsesHandler implements Handler {
             return;
         }
 
+        JsonNode inputNode = body.get("input");
+        if (inputNode != null && !inputNode.isTextual() && !inputNode.isArray()) {
+            JsonHelper.toErrorResponse(ctx, "`input` must be a string or an array.", 400,
+                    "invalid_request_error", "input", "invalid_type");
+            return;
+        }
+
         boolean wantsStream = body.path("stream").asBoolean(false);
         AccessLogFields.mode(ctx, wantsStream ? "stream" : "sync");
 
-        // Expand previous_response_id and item_reference references before forwarding
+        ObjectNode canonical = normalizeInput((ObjectNode) body);
+
+        // Expand previous_response_id and item_reference references after canonicalizing input,
+        // so string input participates in replay just like typed input.
         ResponsesState state = replayStateFor(ctx);
-        ObjectNode expanded = state.expandRequestBody((ObjectNode) body);
+        ObjectNode expanded = state.expandRequestBody(canonical);
 
         // Normalize body
         ObjectNode normalized = requestSanitizer.sanitize(normalizeBody(expanded), config.store());
@@ -165,6 +176,25 @@ public class ResponsesHandler implements Handler {
             normalized.set("reasoning", reasoning);
         }
 
+        return normalized;
+    }
+
+    private ObjectNode normalizeInput(ObjectNode body) {
+        ObjectNode normalized = body.deepCopy();
+        JsonNode input = normalized.get("input");
+        if (input == null || !input.isTextual()) {
+            return normalized;
+        }
+
+        ObjectNode message = MAPPER.createObjectNode();
+        message.put("type", "message");
+        message.put("role", "user");
+        ObjectNode text = MAPPER.createObjectNode();
+        text.put("type", "input_text");
+        text.put("text", input.asText());
+        ArrayNode content = MAPPER.createArrayNode().add(text);
+        message.set("content", content);
+        normalized.set("input", MAPPER.createArrayNode().add(message));
         return normalized;
     }
 

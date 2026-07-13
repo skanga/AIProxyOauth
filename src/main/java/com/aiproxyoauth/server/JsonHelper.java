@@ -41,10 +41,17 @@ public final class JsonHelper {
     }
 
     public static void toErrorResponse(Context ctx, String message, int status, String type) {
+        toErrorResponse(ctx, message, status, type, null, null);
+    }
+
+    public static void toErrorResponse(Context ctx, String message, int status, String type,
+                                       String param, String code) {
         ObjectNode root = Json.MAPPER.createObjectNode();
         ObjectNode error = Json.MAPPER.createObjectNode();
         error.put("message", message);
         error.put("type", type);
+        if (param != null) error.put("param", param); else error.putNull("param");
+        if (code != null) error.put("code", code); else error.putNull("code");
         root.set("error", error);
         toJsonResponse(ctx, root, status);
     }

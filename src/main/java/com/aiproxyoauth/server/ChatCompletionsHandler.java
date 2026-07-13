@@ -65,12 +65,19 @@ public class ChatCompletionsHandler implements Handler {
             return;
         }
 
+        String toolChoiceError = validateToolChoice(body);
+        if (toolChoiceError != null) {
+            JsonHelper.toErrorResponse(ctx, toolChoiceError, 400, "invalid_request_error",
+                    "tool_choice", "invalid_value");
+            return;
+        }
+
         boolean wantsStream = body.path("stream").asBoolean(false);
         AccessLogFields.mode(ctx, wantsStream ? "stream" : "sync");
         // When --models was specified, default to the first configured model.
-        // "gpt-5.2" is the last-resort fallback for when no models were configured and
-        // auto-discovery failed — in that case no better default is available without
-        // an extra ModelResolver call. Callers can always override via the "model" field.
+        // ServerConfig.DEFAULT_MODEL is the last-resort fallback for when no models were
+        // configured & auto-discovery failed - in that case no better default is available
+        // without an extra ModelResolver call. Callers can always override via the "model" field.
         String defaultModel = config.models() != null && !config.models().isEmpty()
                 ? config.models().getFirst() : ServerConfig.DEFAULT_MODEL;
         String model = body.path("model").asText(defaultModel);
@@ -226,7 +233,15 @@ public class ChatCompletionsHandler implements Handler {
 
         // Tool choice
         if (chatBody.has("tool_choice") && !chatBody.get("tool_choice").isNull()) {
-            upstream.set("tool_choice", chatBody.get("tool_choice"));
+            JsonNode choice = chatBody.get("tool_choice");
+            if (choice.isObject() && "function".equals(choice.path("type").asText())) {
+                ObjectNode translated = MAPPER.createObjectNode();
+                translated.put("type", "function");
+                translated.put("name", choice.path("function").path("name").asText(""));
+                upstream.set("tool_choice", translated);
+            } else {
+                upstream.set("tool_choice", choice);
+            }
         }
 
         // Reasoning effort
@@ -298,6 +313,7 @@ public class ChatCompletionsHandler implements Handler {
 
         StringBuilder textContent = new StringBuilder();
         ArrayNode toolCalls = MAPPER.createArrayNode();
+        String refusal = null;
         String finishReason = "stop";
 
         JsonNode output = completedResponse.get("output");
@@ -311,6 +327,8 @@ public class ChatCompletionsHandler implements Handler {
                             for (JsonNode part : content) {
                                 if ("output_text".equals(part.path("type").asText())) {
                                     textContent.append(part.path("text").asText(""));
+                                } else if ("refusal".equals(part.path("type").asText())) {
+                                    refusal = part.path("refusal").asText(part.path("text").asText(""));
                                 }
                             }
                         }
@@ -336,6 +354,16 @@ public class ChatCompletionsHandler implements Handler {
         }
         if (!toolCalls.isEmpty()) {
             message.set("tool_calls", toolCalls);
+        }
+        if (refusal != null && !refusal.isBlank()) {
+            message.put("refusal", refusal);
+        }
+
+        if (textContent.isEmpty() && toolCalls.isEmpty() && (refusal == null || refusal.isBlank())) {
+            JsonHelper.toErrorResponse(ctx,
+                    "Upstream completed without text, tool calls, or a refusal.",
+                    502, "upstream_protocol_error", null, "empty_completion");
+            return;
         }
 
         String status = completedResponse.path("status").asText("");
@@ -367,6 +395,8 @@ public class ChatCompletionsHandler implements Handler {
         String id = "chatcmpl_" + UUID.randomUUID();
         long created = System.currentTimeMillis() / 1000;
         Map<String, Integer> toolIndexes = new LinkedHashMap<>();
+        Map<String, StringBuilder> emittedToolArguments = new LinkedHashMap<>();
+        Map<String, String> callIdsByItemId = new LinkedHashMap<>();
         boolean[] doneSent = {false};
         boolean[] finishSent = {false};
 
@@ -411,8 +441,12 @@ public class ChatCompletionsHandler implements Handler {
                             if (item != null && "function_call".equals(item.path("type").asText())) {
                                 String callId = item.path("call_id").asText("");
                                 String name = item.path("name").asText("");
+                                if (callId.isBlank()) break;
+                                rememberCallItemId(callIdsByItemId, item, callId);
+                                if (toolIndexes.containsKey(callId)) break;
                                 int nextIndex = toolIndexes.size();
                                 toolIndexes.put(callId, nextIndex);
+                                emittedToolArguments.put(callId, new StringBuilder());
 
                                 ArrayNode tcArray = MAPPER.createArrayNode();
                                 ObjectNode tc = MAPPER.createObjectNode();
@@ -429,12 +463,22 @@ public class ChatCompletionsHandler implements Handler {
                                         createToolCallsDelta(tcArray), null));
                             }
                         }
+                        case "response.output_item.done" -> {
+                            JsonNode item = parsed.get("item");
+                            if (item != null && "function_call".equals(item.path("type").asText())) {
+                                rememberCallItemId(callIdsByItemId, item,
+                                        item.path("call_id").asText(""));
+                                reconcileToolCall(ctx, os, id, created, model, toolIndexes,
+                                        emittedToolArguments, item);
+                            }
+                        }
                         case "response.function_call_arguments.delta" -> {
-                            String callId = parsed.path("call_id").asText(
-                                    parsed.path("item_id").asText(""));
+                            String callId = eventCallId(parsed, callIdsByItemId);
                             String argDelta = parsed.path("delta").asText("");
                             Integer index = toolIndexes.get(callId);
                             if (index != null && !argDelta.isEmpty()) {
+                                emittedToolArguments.computeIfAbsent(callId, ignored -> new StringBuilder())
+                                        .append(argDelta);
                                 ArrayNode tcArray = MAPPER.createArrayNode();
                                 ObjectNode tc = MAPPER.createObjectNode();
                                 tc.put("index", index);
@@ -447,8 +491,22 @@ public class ChatCompletionsHandler implements Handler {
                                         createToolCallsDelta(tcArray), null));
                             }
                         }
+                        case "response.function_call_arguments.done" -> {
+                            String callId = eventCallId(parsed, callIdsByItemId);
+                            emitMissingArguments(ctx, os, id, created, model, toolIndexes,
+                                    emittedToolArguments, callId, parsed.path("arguments").asText(""));
+                        }
                         case "response.completed" -> {
                             JsonNode response = parsed.get("response");
+                            JsonNode output = response != null ? response.get("output") : null;
+                            if (output != null && output.isArray()) {
+                                for (JsonNode item : output) {
+                                    if ("function_call".equals(item.path("type").asText())) {
+                                        reconcileToolCall(ctx, os, id, created, model, toolIndexes,
+                                                emittedToolArguments, item);
+                                    }
+                                }
+                            }
                             String status = response != null ? response.path("status").asText("") : "";
                             String fr = switch (status) {
                                 case "completed" -> toolIndexes.isEmpty() ? "stop" : "tool_calls";
@@ -518,6 +576,85 @@ public class ChatCompletionsHandler implements Handler {
             }
             os.flush();
         }
+    }
+
+    private String validateToolChoice(JsonNode body) {
+        JsonNode choice = body.get("tool_choice");
+        if (choice == null || choice.isNull()) return null;
+        if (choice.isTextual()) {
+            return Set.of("auto", "none", "required").contains(choice.asText())
+                    ? null : "`tool_choice` must be `auto`, `none`, `required`, or a named function choice.";
+        }
+        if (!choice.isObject() || !"function".equals(choice.path("type").asText())) {
+            return "Object `tool_choice` must have type `function`.";
+        }
+        String name = choice.path("function").path("name").asText("");
+        if (name.isBlank()) return "Named function `tool_choice` requires `function.name`.";
+        JsonNode tools = body.get("tools");
+        if (tools == null || !tools.isArray()) return "Named function `tool_choice` requires a matching tool.";
+        for (JsonNode tool : tools) {
+            if (name.equals(tool.path("function").path("name").asText())) return null;
+        }
+        return "Named function `tool_choice` does not match any declared tool.";
+    }
+
+    private String eventCallId(JsonNode event, Map<String, String> callIdsByItemId) {
+        String callId = event.path("call_id").asText("");
+        if (!callId.isBlank()) return callId;
+        return callIdsByItemId.getOrDefault(event.path("item_id").asText(""), "");
+    }
+
+    private void rememberCallItemId(Map<String, String> callIdsByItemId,
+                                    JsonNode item, String callId) {
+        String itemId = item.path("id").asText("");
+        if (!itemId.isBlank() && !callId.isBlank()) callIdsByItemId.put(itemId, callId);
+    }
+
+    private void reconcileToolCall(Context ctx, OutputStream os, String id, long created, String model,
+                                   Map<String, Integer> toolIndexes,
+                                   Map<String, StringBuilder> emittedToolArguments, JsonNode item) throws Exception {
+        String callId = item.path("call_id").asText("");
+        if (callId.isBlank()) return;
+        if (toolIndexes.containsKey(callId)) {
+            emitMissingArguments(ctx, os, id, created, model, toolIndexes, emittedToolArguments,
+                    callId, item.path("arguments").asText(""));
+            return;
+        }
+        int index = toolIndexes.size();
+        toolIndexes.put(callId, index);
+        String arguments = item.path("arguments").asText("");
+        emittedToolArguments.put(callId, new StringBuilder(arguments));
+
+        ObjectNode tc = MAPPER.createObjectNode();
+        tc.put("index", index);
+        tc.put("id", callId);
+        tc.put("type", "function");
+        ObjectNode function = MAPPER.createObjectNode();
+        function.put("name", item.path("name").asText(""));
+        function.put("arguments", arguments);
+        tc.set("function", function);
+        writeSseChunk(ctx, os, createChunk(id, created, model,
+                createToolCallsDelta(MAPPER.createArrayNode().add(tc)), null));
+    }
+
+    private void emitMissingArguments(Context ctx, OutputStream os, String id, long created, String model,
+                                      Map<String, Integer> toolIndexes,
+                                      Map<String, StringBuilder> emittedToolArguments,
+                                      String callId, String completeArguments) throws Exception {
+        Integer index = toolIndexes.get(callId);
+        if (index == null || completeArguments == null) return;
+        StringBuilder emitted = emittedToolArguments.computeIfAbsent(callId, ignored -> new StringBuilder());
+        String suffix = completeArguments.startsWith(emitted.toString())
+                ? completeArguments.substring(emitted.length()) : completeArguments;
+        if (suffix.isEmpty()) return;
+        emitted.append(suffix);
+        ObjectNode tc = MAPPER.createObjectNode();
+        tc.put("index", index);
+        ObjectNode function = MAPPER.createObjectNode();
+        function.put("arguments", suffix);
+        tc.set("function", function);
+        writeSseChunk(ctx, os, createChunk(id, created, model,
+                createToolCallsDelta(MAPPER.createArrayNode().add(tc)), null));
     }
 
     private ObjectNode createChunk(String id, long created, String model,

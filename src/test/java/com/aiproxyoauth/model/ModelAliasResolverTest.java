@@ -11,12 +11,11 @@ class ModelAliasResolverTest {
 
     @Test
     void resolve_exactCodexReasoningAliases() {
-        assertResolved("gpt-5.2-codex-low", "gpt-5.2-codex", "low");
-        assertResolved("gpt-5.2-codex-medium", "gpt-5.2-codex", "medium");
-        assertResolved("gpt-5.2-codex-high", "gpt-5.2-codex", "high");
-        assertResolved("gpt-5.2-codex-xhigh", "gpt-5.2-codex", "xhigh");
-        assertResolved("gpt-5.1-codex-max-xhigh", "gpt-5.1-codex-max", "xhigh");
-        assertResolved("gpt-5.1-none", "gpt-5.1", "none");
+        assertResolved("gpt-5.3-codex-spark-low", "gpt-5.3-codex-spark", "low");
+        assertResolved("gpt-5.3-codex-spark-medium", "gpt-5.3-codex-spark", "medium");
+        assertResolved("gpt-5.3-codex-spark-high", "gpt-5.3-codex-spark", "high");
+        assertResolved("gpt-5.3-codex-spark-xhigh", "gpt-5.3-codex-spark", "xhigh");
+        assertResolved("gpt-5.4-mini-none", "gpt-5.4-mini", "none");
     }
 
     @Test
@@ -28,44 +27,32 @@ class ModelAliasResolverTest {
     }
 
     @Test
-    void clampReasoningEffort_noneRemainsForGptFiveOneAndFiveTwo() {
-        assertEquals("none", resolver.clampReasoningEffort("gpt-5.1", "none"));
-        assertEquals("none", resolver.clampReasoningEffort("gpt-5.2", "none"));
+    void clampReasoningEffort_noneRemainsForCurrentNonCodexModels() {
+        assertEquals("none", resolver.clampReasoningEffort("gpt-5.5", "none"));
+        assertEquals("none", resolver.clampReasoningEffort("gpt-5.4-mini", "none"));
     }
 
     @Test
     void clampReasoningEffort_noneAndMinimalBecomeLowForCodexModels() {
-        assertEquals("low", resolver.clampReasoningEffort("gpt-5.2-codex", "none"));
-        assertEquals("low", resolver.clampReasoningEffort("gpt-5.2-codex", "minimal"));
+        assertEquals("low", resolver.clampReasoningEffort("gpt-5.3-codex-spark", "none"));
+        assertEquals("low", resolver.clampReasoningEffort("gpt-5.3-codex-spark", "minimal"));
     }
 
     @Test
     void clampReasoningEffort_xhighRemainsForSupportedModels() {
-        assertEquals("xhigh", resolver.clampReasoningEffort("gpt-5.2", "xhigh"));
-        assertEquals("xhigh", resolver.clampReasoningEffort("gpt-5.2-codex", "xhigh"));
-        assertEquals("xhigh", resolver.clampReasoningEffort("gpt-5.1-codex-max", "xhigh"));
+        assertEquals("xhigh", resolver.clampReasoningEffort("gpt-5.3-codex-spark", "xhigh"));
     }
 
     @Test
     void clampReasoningEffort_xhighBecomesHighForUnsupportedModels() {
-        assertEquals("high", resolver.clampReasoningEffort("gpt-5.1", "xhigh"));
+        assertEquals("high", resolver.clampReasoningEffort("gpt-5.5", "xhigh"));
         assertEquals("high", resolver.clampReasoningEffort("custom-model", "xhigh"));
     }
 
     @Test
-    void clampReasoningEffort_codexMiniAcceptsOnlyMediumOrHigh() {
-        assertEquals("medium", resolver.clampReasoningEffort("gpt-5.1-codex-mini", "none"));
-        assertEquals("medium", resolver.clampReasoningEffort("gpt-5.1-codex-mini", "low"));
-        assertEquals("medium", resolver.clampReasoningEffort("gpt-5.1-codex-mini", "minimal"));
-        assertEquals("medium", resolver.clampReasoningEffort("gpt-5.1-codex-mini", "medium"));
-        assertEquals("high", resolver.clampReasoningEffort("gpt-5.1-codex-mini", "high"));
-        assertEquals("high", resolver.clampReasoningEffort("gpt-5.1-codex-mini", "xhigh"));
-    }
-
-    @Test
     void clampReasoningEffort_nullOrBlankRemainUnset() {
-        assertNull(resolver.clampReasoningEffort("gpt-5.2", null));
-        assertNull(resolver.clampReasoningEffort("gpt-5.2", " "));
+        assertNull(resolver.clampReasoningEffort("gpt-5.5", null));
+        assertNull(resolver.clampReasoningEffort("gpt-5.5", " "));
     }
 
     private void assertResolved(String alias, String model, String reasoningEffort) {

@@ -6,12 +6,11 @@ import java.util.Map;
 public final class ModelAliasResolver {
 
     private static final Map<String, ResolvedModel> ALIASES = Map.ofEntries(
-            Map.entry("gpt-5.2-codex-low", new ResolvedModel("gpt-5.2-codex", "low")),
-            Map.entry("gpt-5.2-codex-medium", new ResolvedModel("gpt-5.2-codex", "medium")),
-            Map.entry("gpt-5.2-codex-high", new ResolvedModel("gpt-5.2-codex", "high")),
-            Map.entry("gpt-5.2-codex-xhigh", new ResolvedModel("gpt-5.2-codex", "xhigh")),
-            Map.entry("gpt-5.1-codex-max-xhigh", new ResolvedModel("gpt-5.1-codex-max", "xhigh")),
-            Map.entry("gpt-5.1-none", new ResolvedModel("gpt-5.1", "none"))
+            Map.entry("gpt-5.3-codex-spark-low", new ResolvedModel("gpt-5.3-codex-spark", "low")),
+            Map.entry("gpt-5.3-codex-spark-medium", new ResolvedModel("gpt-5.3-codex-spark", "medium")),
+            Map.entry("gpt-5.3-codex-spark-high", new ResolvedModel("gpt-5.3-codex-spark", "high")),
+            Map.entry("gpt-5.3-codex-spark-xhigh", new ResolvedModel("gpt-5.3-codex-spark", "xhigh")),
+            Map.entry("gpt-5.4-mini-none", new ResolvedModel("gpt-5.4-mini", "none"))
     );
 
     public record ResolvedModel(String model, String reasoningEffort) {}
@@ -66,8 +65,6 @@ public final class ModelAliasResolver {
     }
 
     private boolean supportsXHigh(String modelName) {
-        return modelName.equals("gpt-5.2")
-                || modelName.startsWith("gpt-5.2-")
-                || modelName.equals("gpt-5.1-codex-max");
+        return modelName.equals("gpt-5.3-codex-spark");
     }
 }

@@ -282,13 +282,50 @@ class ChatCompletionsHandlerTest {
         assertEquals("high", upstream.path("reasoning").path("effort").asText());
     }
 
+    @Test void namedToolChoice_isTranslatedToResponsesShape() throws Exception {
+        HttpResponse<InputStream> upstream = sseResponse(200, COMPLETED_TEXT_SSE);
+        when(client.request(anyString(), anyString(), anyString(), any()))
+                .thenReturn(upstream);
+
+        post("""
+                {
+                  "messages":[{"role":"user","content":"Use lookup"}],
+                  "tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],
+                  "tool_choice":{"type":"function","function":{"name":"lookup"}}
+                }
+                """);
+
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(client).request(anyString(), anyString(), bodyCaptor.capture(), any());
+        JsonNode choice = MAPPER.readTree(bodyCaptor.getValue()).path("tool_choice");
+        assertEquals("function", choice.path("type").asText());
+        assertEquals("lookup", choice.path("name").asText());
+        assertFalse(choice.has("function"));
+    }
+
+    @Test void namedToolChoice_withoutName_isRejectedLocally() throws Exception {
+        HttpResponse<String> resp = post("""
+                {
+                  "messages":[{"role":"user","content":"Use a tool"}],
+                  "tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],
+                  "tool_choice":{"type":"function","function":{}}
+                }
+                """);
+
+        assertEquals(400, resp.statusCode());
+        JsonNode error = MAPPER.readTree(resp.body()).path("error");
+        assertEquals("invalid_request_error", error.path("type").asText());
+        assertEquals("tool_choice", error.path("param").asText());
+        verifyNoInteractions(client);
+    }
+
     @Test void modelAlias_setsBackendModelAndReasoningEffort() throws Exception {
         HttpResponse<InputStream> sseResp = sseResponse(200, COMPLETED_TEXT_SSE);
         when(client.request(anyString(), anyString(), anyString(), any())).thenReturn(sseResp);
 
         post("""
                 {
-                  "model": "gpt-5.2-codex-xhigh",
+                  "model": "gpt-5.3-codex-spark-xhigh",
                   "messages": [
                     {
                       "role": "user",
@@ -301,7 +338,7 @@ class ChatCompletionsHandlerTest {
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
         verify(client).request(anyString(), anyString(), bodyCaptor.capture(), any());
         JsonNode upstream = MAPPER.readTree(bodyCaptor.getValue());
-        assertEquals("gpt-5.2-codex", upstream.path("model").asText());
+        assertEquals("gpt-5.3-codex-spark", upstream.path("model").asText());
         assertEquals("xhigh", upstream.path("reasoning").path("effort").asText());
     }
 
@@ -410,6 +447,90 @@ class ChatCompletionsHandlerTest {
 
         assertTrue(resp.body().contains("data: [DONE]"),
                 "Expected '[DONE]' in streaming body: " + resp.body());
+    }
+
+    @Test void nonStreaming_functionCallEventsRecoveredWhenCompletedOutputIsEmpty() throws Exception {
+        String eventOnlyCall = """
+                data: {"type":"response.output_item.added","item":{"id":"fc_27","type":"function_call","call_id":"call_27","name":"python-eval","arguments":""}}
+
+                data: {"type":"response.function_call_arguments.done","item_id":"fc_27","arguments":"{\\"code\\":\\"factorial(100)\\"}"}
+
+                data: {"type":"response.completed","response":{"status":"completed","output":[],"usage":{"input_tokens":112,"output_tokens":27}}}
+
+                """;
+        HttpResponse<InputStream> upstream = sseResponse(200, eventOnlyCall);
+        when(client.request(anyString(), anyString(), anyString(), any())).thenReturn(upstream);
+
+        HttpResponse<String> resp = post("""
+                {"model":"gpt-5.4","messages":[{"role":"user","content":"Calculate 100 factorial."}]}
+                """);
+
+        JsonNode choice = MAPPER.readTree(resp.body()).path("choices").get(0);
+        assertEquals("tool_calls", choice.path("finish_reason").asText());
+        assertEquals("call_27", choice.path("message").path("tool_calls").get(0).path("id").asText());
+        assertEquals("python-eval", choice.path("message").path("tool_calls").get(0)
+                .path("function").path("name").asText());
+    }
+
+    @Test void nonStreaming_emptyOutcomeReturnsProtocolError() throws Exception {
+        String empty = """
+                data: {"type":"response.completed","response":{"status":"completed","output":[],"usage":{"input_tokens":112,"output_tokens":27}}}
+
+                """;
+        HttpResponse<InputStream> upstream = sseResponse(200, empty);
+        when(client.request(anyString(), anyString(), anyString(), any())).thenReturn(upstream);
+
+        HttpResponse<String> resp = post("""
+                {"model":"gpt-5.4","messages":[{"role":"user","content":"Calculate 100 factorial."}]}
+                """);
+
+        assertEquals(502, resp.statusCode());
+        JsonNode error = MAPPER.readTree(resp.body()).path("error");
+        assertEquals("upstream_protocol_error", error.path("type").asText());
+        assertEquals("empty_completion", error.path("code").asText());
+    }
+
+    @Test void streamTrue_completedFunctionCallIsReconciledBeforeFinish() throws Exception {
+        String completedOnly = """
+                data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"function_call","call_id":"call_9","name":"lookup","arguments":"{\\"q\\":\\"x\\"}"}],"usage":{"input_tokens":4,"output_tokens":2}}}
+
+                data: [DONE]
+
+                """;
+        HttpResponse<InputStream> upstream = sseResponse(200, completedOnly);
+        when(client.request(anyString(), anyString(), anyString(), any()))
+                .thenReturn(upstream);
+
+        HttpResponse<String> resp = post("""
+                {"messages":[{"role":"user","content":"Use lookup"}],"stream":true}
+                """);
+
+        assertTrue(resp.body().contains("\"id\":\"call_9\""), resp.body());
+        assertTrue(resp.body().contains("\"name\":\"lookup\""), resp.body());
+        assertTrue(resp.body().contains("\"finish_reason\":\"tool_calls\""), resp.body());
+        assertTrue(resp.body().indexOf("\"id\":\"call_9\"")
+                < resp.body().indexOf("\"finish_reason\":\"tool_calls\""), resp.body());
+    }
+
+    @Test void streamTrue_argumentsDoneWithoutDeltasEmitsArguments() throws Exception {
+        String doneOnly = """
+                data: {"type":"response.output_item.added","item":{"id":"fc_10","type":"function_call","call_id":"call_10","name":"lookup","arguments":""}}
+
+                data: {"type":"response.function_call_arguments.done","item_id":"fc_10","arguments":"{\\"q\\":\\"x\\"}"}
+
+                data: {"type":"response.completed","response":{"status":"completed","output":[],"usage":{}}}
+
+                data: [DONE]
+
+                """;
+        HttpResponse<InputStream> upstream = sseResponse(200, doneOnly);
+        when(client.request(anyString(), anyString(), anyString(), any())).thenReturn(upstream);
+
+        HttpResponse<String> resp = post("""
+                {"messages":[{"role":"user","content":"Use lookup"}],"stream":true}
+                """);
+
+        assertTrue(resp.body().contains("\"arguments\":\"{\\\"q\\\":\\\"x\\\"}\""), resp.body());
     }
 
     // --- Tool role message translation ---

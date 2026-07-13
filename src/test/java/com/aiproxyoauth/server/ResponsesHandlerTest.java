@@ -114,6 +114,40 @@ class ResponsesHandlerTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void handle_stringInput_normalizesToTypedUserMessage() throws Exception {
+        when(ctx.body()).thenReturn("{\"input\":\"Hello\"}");
+        HttpResponse<InputStream> upstream = response("""
+                data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":0}}}
+
+                """);
+        when(client.request(eq("/responses"), eq("POST"), anyString(), any()))
+                .thenReturn(upstream);
+
+        new ResponsesHandler(client, minimalConfig(), usageTracker).handle(ctx);
+
+        var payload = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(client).request(eq("/responses"), eq("POST"), payload.capture(), any());
+        JsonNode input = MAPPER.readTree(payload.getValue()).path("input");
+        assertTrue(input.isArray());
+        assertEquals("message", input.get(0).path("type").asText());
+        assertEquals("user", input.get(0).path("role").asText());
+        assertEquals("input_text", input.get(0).path("content").get(0).path("type").asText());
+        assertEquals("Hello", input.get(0).path("content").get(0).path("text").asText());
+    }
+
+    @Test
+    void handle_invalidInputType_isRejectedLocally() throws Exception {
+        when(ctx.body()).thenReturn("{\"input\":42}");
+
+        new ResponsesHandler(client, minimalConfig(), usageTracker).handle(ctx);
+
+        verify(ctx).status(400);
+        verify(ctx).result(contains("\"param\":\"input\""));
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void handle_previousResponseId_accepted_andExpanded() throws Exception {
         // previous_response_id with no cached history: handler forwards the request as-is
         // (expansion is a no-op when nothing is cached for that id)
