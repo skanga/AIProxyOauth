@@ -10,6 +10,8 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.sun.net.httpserver.HttpServer;
@@ -19,6 +21,12 @@ import static org.junit.jupiter.api.Assertions.*;
 class AIProxyOauthTest {
 
     private static final PrintStream NULL_STREAM = new PrintStream(OutputStream.nullOutputStream());
+
+    private static String jwtWithPayload(String payload) {
+        String encodedPayload = Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+        return "header." + encodedPayload + ".signature";
+    }
 
     @Test
     void testHelp() {
@@ -242,6 +250,47 @@ class AIProxyOauthTest {
         assertTrue(output.contains("Auth file: " + authFile));
         assertTrue(output.contains("Keys:     1 key(s) configured (u1)"));
         assertTrue(output.contains("Admin:    key configured"));
+    }
+
+    @Test
+    void testPrintStartupBannerShowsAuthenticatedUserAndPlan(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) {
+        AIProxyOauth app = new AIProxyOauth();
+        StringWriter sw = new StringWriter();
+        CommandLine cmd = new CommandLine(app);
+        cmd.setOut(new PrintWriter(sw));
+        java.nio.file.Path authFile = tempDir.resolve("auth.json");
+        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
+                "127.0.0.1", 10531, null, null, "http://base", null, null, authFile.toString(), "", false,
+                java.util.Map.of(), null
+        );
+        String idToken = jwtWithPayload("""
+                {"email":"person@example.com","https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}
+                """);
+
+        app.printStartupBanner(config, java.util.List.of(), authFile.toString(), false, null, idToken);
+
+        String output = sw.toString();
+        assertTrue(output.contains("Email: person@example.com"));
+        assertTrue(output.contains("Plan:  plus"));
+    }
+
+    @Test
+    void testPrintStartupBannerOmitsUserDetailsForMalformedIdToken(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) {
+        AIProxyOauth app = new AIProxyOauth();
+        StringWriter sw = new StringWriter();
+        CommandLine cmd = new CommandLine(app);
+        cmd.setOut(new PrintWriter(sw));
+        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
+                "127.0.0.1", 10531, null, null, "http://base", null, null, tempDir.resolve("auth.json").toString(), "", false,
+                java.util.Map.of(), null
+        );
+
+        app.printStartupBanner(config, java.util.List.of(), null, false, null, "not-a-jwt");
+
+        assertFalse(sw.toString().contains("Email:"));
+        assertFalse(sw.toString().contains("Plan:"));
     }
 
     @Test

@@ -13,6 +13,7 @@ import com.aiproxyoauth.transport.CodexHttpClient;
 import com.aiproxyoauth.usage.UsageTracker;
 import com.aiproxyoauth.util.ApiKeyUtils;
 import com.aiproxyoauth.util.Json;
+import com.aiproxyoauth.util.JwtParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -161,7 +162,8 @@ public class AIProxyOauth implements Callable<Integer> {
             );
         }
 
-        printStartupBanner(config, availableModels, authResult.sourcePath(), apiKeyStore.isEnforcing(), startupProbe);
+        printStartupBanner(config, availableModels, authResult.sourcePath(), apiKeyStore.isEnforcing(), startupProbe,
+                authResult.idToken());
         setupShutdownHook(server, authHttpClient, apiKeyStore);
 
         // Keep main thread alive
@@ -299,6 +301,17 @@ public class AIProxyOauth implements Callable<Integer> {
             boolean apiKeyEnforcement,
             StartupProbeResult startupProbe
     ) {
+        printStartupBanner(config, availableModels, authFilePath, apiKeyEnforcement, startupProbe, null);
+    }
+
+    void printStartupBanner(
+            ServerConfig config,
+            List<String> availableModels,
+            String authFilePath,
+            boolean apiKeyEnforcement,
+            StartupProbeResult startupProbe,
+            String idToken
+    ) {
         java.io.PrintWriter out = spec.commandLine().getOut();
         String url = "http://" + config.host() + ":" + config.port() + "/v1";
         out.println();
@@ -312,6 +325,18 @@ public class AIProxyOauth implements Callable<Integer> {
         out.println("  CORS: " + describeCors(config));
         if (authFilePath != null && !authFilePath.isBlank()) {
             out.println("  Auth file: " + authFilePath);
+        }
+        JsonNode claims = JwtParser.parseClaims(idToken);
+        if (claims != null) {
+            String email = claims.path("email").asText("");
+            String plan = claims.path("https://api.openai.com/auth")
+                    .path("chatgpt_plan_type").asText("");
+            if (!email.isBlank()) {
+                out.println("  Email: " + email);
+            }
+            if (!plan.isBlank()) {
+                out.println("  Plan:  " + plan);
+            }
         }
         if (startupProbe != null) {
             out.println("  Startup check: " + (startupProbe.success()
