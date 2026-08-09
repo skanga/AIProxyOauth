@@ -101,9 +101,9 @@ class ModelResolverTest {
         assertEquals("0.121.0", resolver.resolveCodexClientVersion());
     }
 
-    @Test void resolveCodexClientVersion_windowsCommandCandidate_success() {
+    @Test void resolveCodexClientVersion_portableCommandCandidate_success() {
         ModelResolver resolver = new ModelResolver(client, null, null, command -> {
-            if (command.equals(List.of("cmd.exe", "/c", "codex.cmd", "--version"))) {
+            if (command.equals(List.of("codex", "--version"))) {
                 return "codex-cli 0.121.0";
             }
             return null;
