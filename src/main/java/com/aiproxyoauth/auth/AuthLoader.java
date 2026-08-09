@@ -41,14 +41,12 @@ public final class AuthLoader {
             HttpClient httpClient
     ) throws IOException, InterruptedException {
         if (clientId == null || clientId.isEmpty()) {
-            String envClientId = System.getenv("CHATGPT_LOCAL_CLIENT_ID");
+            String envClientId = System.getenv("AIPROXY_CODEX_OAUTH_CLIENT_ID");
             clientId = (envClientId != null && !envClientId.isEmpty())
                     ? envClientId : ServerConfig.DEFAULT_CLIENT_ID;
         }
         if (issuer == null || issuer.isEmpty()) {
-            String envIssuer = System.getenv("CHATGPT_LOCAL_ISSUER");
-            issuer = (envIssuer != null && !envIssuer.isEmpty())
-                    ? envIssuer : ServerConfig.DEFAULT_ISSUER;
+            issuer = ServerConfig.DEFAULT_ISSUER;
         }
 
         List<String> candidates = AuthFileResolver.resolveCandidates(authFilePath);

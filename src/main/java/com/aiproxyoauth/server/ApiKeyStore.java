@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * Thread-safe, hot-reloadable API key store.
  *
  * Inline keys (from --api-key) are immutable for the process lifetime.
- * File keys (from --api-keys-file) are reloaded on WatchService events or
+ * File keys (from --client-keys-file) are reloaded on WatchService events or
  * lazily when a 401 is issued and the file timestamp has advanced.
  *
  * Both sources are merged into a single Snapshot via AtomicReference,

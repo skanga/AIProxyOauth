@@ -1,13 +1,24 @@
-The workflow will:
+AIProxyOauth 2.0.0 release notes and gate
+=========================================
 
-1. Trigger when you push a tag matching v* (e.g. v1.1.1)
-2. Build the fat JAR with Maven on JDK 21
-3. Create a GitHub Release with auto-generated release notes and the fat JAR attached
+2.0.0 is an intentional breaking CLI and configuration release. It introduces explicit
+client-protocol versus upstream-provider terminology, the `serve`, `auth`, `key`,
+`config`, and `doctor` command tree, strict explicitly selected YAML configuration,
+provider-specific options, secret-only file/environment client authentication, three
+startup-check modes, and one redacted startup renderer.
 
-To publish a release:
+Release gate:
 
-git tag v1.1.1
-git push origin v1.1.1
+1. `mvn test`
+2. `mvn clean package`
+3. `java -jar target/AIProxyOauth-2.0.0.jar --help`
+4. Complete `MANUAL_TEST_PLAN.md` on Windows and one Unix-like environment.
+5. Confirm `startup.check: off` sends no inference requests.
+6. Confirm dual-provider inference checks use `/v1/chat/completions` and `/v1/messages`.
+7. Confirm serve failures are nonfatal and `doctor --inference` failures are nonzero.
+8. Confirm output and protected request logs contain no OAuth tokens, proxy keys, or PII.
 
-The JAR filename is derived from the tag: tag v1.1.1 expects AIProxyOauth-1.1.1.jar which matches your pom.xml
-version. If you bump the version in pom.xml, use the matching tag.
+Tag only after the gate passes:
+
+  git tag v2.0.0
+  git push origin v2.0.0

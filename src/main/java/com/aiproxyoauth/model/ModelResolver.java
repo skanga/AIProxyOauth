@@ -19,6 +19,8 @@ import java.util.regex.Pattern;
 
 public class ModelResolver {
 
+    public enum Source { NOT_RESOLVED, CONFIGURED, DISCOVERED, CACHE, FALLBACK }
+
     private static final long MODELS_CACHE_TTL_MS = 5 * 60 * 1000L;
     private static final Pattern VERSION_PATTERN = Pattern.compile("\\b\\d+\\.\\d+\\.\\d+\\b");
     private static final long CODEX_VERSION_CACHE_TTL_MS = 60 * 60 * 1000L;
@@ -33,6 +35,7 @@ public class ModelResolver {
     private volatile List<String> cachedModels;
     private volatile long modelsCacheExpiresAt;
     private volatile String cachedCodexVersion;
+    private volatile Source source = Source.NOT_RESOLVED;
     private volatile long codexVersionCacheExpiresAt;
     // Two separate locks so that model-list resolution never blocks codex-version resolution
     // and vice versa — previously a single lock caused up to 15-second stalls on cold start
@@ -54,12 +57,14 @@ public class ModelResolver {
 
     public List<String> resolveModels() throws Exception {
         if (configuredModels != null && !configuredModels.isEmpty()) {
+            source = Source.CONFIGURED;
             return CollectionUtils.uniqueStrings(configuredModels);
         }
 
         long now = System.currentTimeMillis();
         List<String> cached = cachedModels;
         if (cached != null && now < modelsCacheExpiresAt) {
+            source = Source.CACHE;
             return new ArrayList<>(cached);
         }
 
@@ -68,12 +73,20 @@ public class ModelResolver {
             // Double-check after acquiring lock
             cached = cachedModels;
             if (cached != null && System.currentTimeMillis() < modelsCacheExpiresAt) {
+                source = Source.CACHE;
                 return new ArrayList<>(cached);
             }
 
-            List<String> models = fetchAvailableModels();
+            List<String> models;
+            try {
+                models = fetchAvailableModels();
+            } catch (Exception error) {
+                source = Source.FALLBACK;
+                throw error;
+            }
             cachedModels = models;
             modelsCacheExpiresAt = System.currentTimeMillis() + MODELS_CACHE_TTL_MS;
+            source = Source.DISCOVERED;
             return new ArrayList<>(models);
         } finally {
             modelsLock.unlock();
@@ -166,6 +179,10 @@ public class ModelResolver {
             }
         }
         return null;
+    }
+
+    public Source source() {
+        return source;
     }
 
     static List<List<String>> localCodexVersionCommands(boolean windows) {

@@ -1,5 +1,7 @@
 # Build output
 target/
+__pycache__/
+*.py[cod]
 
 # IDE - IntelliJ IDEA
 .idea/
@@ -33,3 +35,5 @@ replay_pid*
 
 # Project-specific
 keys.txt
+anthropic-auth.json
+anthropic-auth.json.lock

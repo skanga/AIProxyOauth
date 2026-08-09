@@ -1,0 +1,63 @@
+# AIProxyOauth 2.0 example configuration
+# Run with:
+#   java -jar target/AIProxyOauth-2.0.0.jar serve --config aiproxy.example.yaml
+#
+# Relative paths are resolved from this file's directory. Client and admin keys
+# must be supplied through key files or AIPROXY_CLIENT_KEYS /
+# AIPROXY_ADMIN_CLIENT_KEY; never place literal secrets in YAML.
+
+server:
+  host: 127.0.0.1
+  port: 10531
+
+routing:
+  # auto enables every provider for which usable credentials are found.
+  provider: auto
+  # Used only for unqualified models on OpenAI-compatible endpoints.
+  default_provider: codex
+
+client_auth:
+  # Uncomment after creating these files. Use one name:key or bare key per line
+  # in keys.txt; admin-key.txt should contain only the admin key.
+  # keys_file: ./secrets/keys.txt
+  # admin_key_file: ./secrets/admin-key.txt
+
+codex:
+  oauth_file: ~/.codex/auth.json
+  # An empty list keeps account model discovery enabled.
+  models: []
+  version: null
+  base_url: https://chatgpt.com/backend-api/codex
+  oauth_client_id: app_EMoamEEZ73f0CkXaXp7hrann
+  oauth_token_url: null
+  store: false
+  forward_prompt_cache_headers: false
+  instructions:
+    # Valid modes: none, file, latest
+    mode: none
+    file: null
+    cache_dir: ./cache/codex-instructions
+
+anthropic:
+  oauth_file: ~/.aiproxy/anthropic-auth.json
+  # An empty list keeps account model discovery and fallbacks enabled.
+  models: []
+  # A trailing /v1 is also accepted and normalized automatically.
+  base_url: https://api.anthropic.com
+  token_url: default
+
+cors:
+  # Origins must not contain paths, queries, or fragments.
+  origins: []
+  # Wildcard CORS requires proxy client authentication.
+  allow_any: false
+
+logging:
+  # Request logging can store bounded prompt and response bodies. Protect the
+  # directory even though credentials and sensitive headers are redacted.
+  requests: false
+  directory: ./logs/requests
+
+startup:
+  # Valid modes: off, credentials, inference
+  check: inference

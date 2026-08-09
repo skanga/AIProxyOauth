@@ -6,6 +6,7 @@ final class AccessLogFields {
     static final String REQUEST_ID = "requestId";
     static final String START_NANOS = "accessLogStartNanos";
     static final String MODE = "accessLogMode";
+    static final String PROVIDER = "accessLogProvider";
     static final String UPSTREAM_STATUS = "accessLogUpstreamStatus";
     static final String RESPONSE_BYTES = "accessLogResponseBytes";
 
@@ -13,6 +14,10 @@ final class AccessLogFields {
 
     static void mode(Context ctx, String mode) {
         ctx.attribute(MODE, mode);
+    }
+
+    static void provider(Context ctx, String provider) {
+        ctx.attribute(PROVIDER, provider);
     }
 
     static void upstreamStatus(Context ctx, int status) {

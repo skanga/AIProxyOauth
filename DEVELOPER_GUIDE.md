@@ -29,9 +29,9 @@ This document explains the architecture, design decisions, and internals of the 
 
 ## Overview
 
-AIProxyOauth is a local HTTP proxy that translates standard OpenAI API calls into requests against OpenAI's internal Codex/Responses backend, authenticating via ChatGPT OAuth tokens stored in the `auth.json` file.
+AIProxyOauth is a local HTTP proxy that translates standard OpenAI API calls for two OAuth-backed providers: OpenAI's Codex/Responses backend and Anthropic's Claude Messages backend. Codex uses ChatGPT credentials from `auth.json`; Claude uses a proxy-owned OAuth credential or `CLAUDE_CODE_OAUTH_TOKEN`.
 
-The key challenge is that the upstream backend uses the **Responses API** format, not the standard **Chat Completions API** format. This proxy handles the bidirectional translation, making the upstream backend accessible through the standard OpenAI API that all client libraries understand.
+The providers expose different wire protocols. Requests are normalized into a shared canonical model, routed by provider/model, and encoded back into OpenAI Chat Completions or Responses output without mixing provider-specific transport logic into the public API layer.
 
 ## Technology Stack
 
@@ -54,13 +54,13 @@ mvn clean compile
 mvn package -DskipTests
 
 # Run
-java -jar target/AIProxyOauth-1.0.0.jar [options]
+java -jar target/AIProxyOauth-2.0.0.jar [serve] [options]
 
 # Run tests
 mvn test
 ```
 
-The `maven-shade-plugin` produces a self-contained JAR with all dependencies at `target/AIProxyOauth-1.0.0.jar`.
+The `maven-shade-plugin` produces a self-contained JAR with all dependencies at `target/AIProxyOauth-2.0.0.jar`.
 
 ## Project Structure
 
@@ -121,6 +121,19 @@ AIProxyOauth/
 4. **Non-streaming:** SSE events are collected, final response is extracted, translated back to `chat.completion` JSON
 5. **Streaming:** SSE events are parsed in real-time, translated to `chat.completion.chunk` SSE events, and streamed to the client
 
+### Multi-provider architecture
+
+`ProviderStartupResolver` selects enabled providers from explicit CLI configuration or available credentials. `CompositeModelCatalog` merges provider catalogs, while `ProviderRouter` resolves qualified names (`codex/...`, `anthropic/...`), known aliases/prefixes, and the configured default provider. Ambiguity is an error.
+
+The routing handlers delegate to provider backends:
+
+- Codex retains `ChatCompletionsHandler` and `ResponsesHandler`, backed by `CodexHttpClient` and the Codex SSE parser.
+- Claude uses `AnthropicChatBackend` and `AnthropicResponsesBackend`. `AnthropicRequestTranslator` converts canonical inputs to Messages requests; `AnthropicStreamDecoder` validates incremental SSE and emits canonical events; the public encoders produce OpenAI-compatible sync or streaming output.
+- `ResponsesState` supplies bounded, client-isolated expansion of Claude `previous_response_id` and `item_reference` values because Anthropic has no corresponding persisted-state feature.
+- `AnthropicMessagesHandler` bypasses canonical/OpenAI conversion for native `/v1/messages`, preserving JSON and SSE while applying OAuth preamble/model/header security. `AnthropicModelsHandler` content-negotiates native Claude-only model discovery on the existing `/v1/models` path.
+
+The Claude compatibility constants are centralized in `AnthropicCompatibilityProfile`. Treat its client id, endpoints, scopes, beta headers, API version, and system preamble as one versioned unit. See `RELEASE.txt` for the pinned values and reference revision.
+
 ## Package Walkthrough
 
 ### config
@@ -139,7 +152,7 @@ AIProxyOauth/
 
 **`JwtParser.java`** — Decodes JWT tokens without verification (we only need the payload claims). Uses `Base64.getUrlDecoder()` to decode the middle segment, then parses with Jackson. The `deriveAccountId()` method extracts `chatgpt_account_id` from the `https://api.openai.com/auth` claim in the `id_token`.
 
-**`AuthFileResolver.java`** — Resolves candidate paths for `auth.json` in priority order: explicit path, `$CHATGPT_LOCAL_HOME`, `$CODEX_HOME`, `~/.chatgpt-local/`, `~/.codex/`. Also determines the write-back path for refreshed tokens.
+**`AuthFileResolver.java`** — Resolves candidate paths for `auth.json` in priority order: explicit path, `$CODEX_HOME`, then `~/.codex/`. Also determines the write-back path for refreshed tokens.
 
 **`AuthLoader.java`** — The core authentication logic:
 - Reads `auth.json` from the first candidate path that exists
@@ -149,6 +162,8 @@ AIProxyOauth/
 - Returns an `AuthResult` record with `accessToken`, `accountId`, etc.
 
 **`AuthManager.java`** — Thread-safe wrapper around `AuthLoader`. Caches the current `AuthResult` and provides `getAuthHeaders()` which returns a map with `Authorization`, `chatgpt-account-id`, and `OpenAI-Beta` headers. Uses `ReentrantLock` for safe concurrent access.
+
+Claude authentication lives under `provider/anthropic/auth`. `AnthropicAuthCommands` owns interactive login/logout; `AnthropicCredentialStore` provides bounded parsing, atomic replacement, locking, and restrictive permissions; `AnthropicAuthManager` serializes refresh and retries one pre-body 401. An environment access token is deliberately non-refreshable. Never log access tokens, refresh tokens, authorization codes, PKCE verifiers, signed reasoning, or redacted thinking.
 
 ### transport
 
@@ -245,8 +260,8 @@ Both caches use double-checked locking with `ReentrantLock` and `volatile` field
 ### Entry Point
 
 **`AIProxyOauth.java`** — picocli `@Command` class:
-1. **`--generate-key` early exit**: if the flag is set, prints a freshly generated `sk-proxy-<32hex>` key and returns immediately (no server starts, no auth file needed).
-2. Parses CLI arguments, including `--api-key` (comma-separated) and `--api-keys-file` (line-per-key file; blank lines and `#` comments skipped); both sources are merged into a `Set<String>` passed to `ServerConfig`.
+1. `key generate` prints a freshly generated `sk-proxy-<32hex>` key and returns immediately.
+2. `EffectiveConfigLoader` resolves CLI, `AIPROXY_*`, explicit YAML, ecosystem credential discovery, and defaults before any transport is built.
 3. Builds `ServerConfig` record
 4. Verifies auth file exists
 5. Creates `AuthManager`, performs initial auth load
@@ -409,4 +424,4 @@ Use the existing `RequestLogger` and keep logging opt-in. New log fields must pa
 
 ### Changing the upstream API
 
-Modify `UrlResolver.resolveTargetUrl()` for path mapping changes, or override `--base-url` at runtime. The `CodexHttpClient` handles all outbound requests, so changes there affect all endpoints.
+Modify `UrlResolver.resolveTargetUrl()` for path mapping changes, or override `--codex-base-url` at runtime. The `CodexHttpClient` handles all outbound requests, so changes there affect all endpoints.

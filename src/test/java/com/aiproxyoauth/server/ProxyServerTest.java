@@ -1,22 +1,33 @@
 package com.aiproxyoauth.server;
 
 import com.aiproxyoauth.config.ServerConfig;
+import com.aiproxyoauth.model.ModelCatalog;
 import com.aiproxyoauth.model.ModelResolver;
+import com.aiproxyoauth.provider.ProviderId;
+import com.aiproxyoauth.provider.ProviderModel;
+import com.aiproxyoauth.provider.anthropic.AnthropicCompatibilityProfile;
+import com.aiproxyoauth.provider.anthropic.AnthropicHttpClient;
+import com.aiproxyoauth.provider.anthropic.AnthropicRequestOptions;
 import com.aiproxyoauth.transport.CodexHttpClient;
 import com.aiproxyoauth.usage.UsageTracker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.net.URI;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -46,6 +57,323 @@ class ProxyServerTest {
         assertNotNull(server.getApp());
         
         // We can't easily check all routes without starting, but we can verify it's configured.
+    }
+
+    @Test
+    void proxyServer_acceptsCompositeReadyModelCatalog() throws Exception {
+        ModelCatalog catalog = new ModelCatalog() {
+            @Override
+            public List<ProviderModel> resolveModels() {
+                return List.of(new ProviderModel(
+                        "claude-sonnet-4-5",
+                        "Claude Sonnet 4.5",
+                        ProviderId.ANTHROPIC,
+                        List.of("anthropic/sonnet"),
+                        Optional.of(true),
+                        200_000
+                ));
+            }
+        };
+        ProxyServer server = new ProxyServer(
+                minimalConfig(),
+                client,
+                catalog,
+                usageTracker,
+                new ApiKeyStore(Map.of(), null, null)
+        );
+        server.getApp().start(0);
+
+        try {
+            HttpResponse<String> response = HttpClient.newHttpClient().send(
+                    req(server.getApp().port(), "/v1/models"),
+                    HttpResponse.BodyHandlers.ofString()
+            );
+
+            assertEquals(200, response.statusCode());
+            assertTrue(response.body().contains("\"id\":\"claude-sonnet-4-5\""));
+            assertTrue(response.body().contains("\"owned_by\":\"anthropic-oauth\""));
+        } finally {
+            server.getApp().stop();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void proxyServer_routesClaudeResponsesThroughAnthropicBackend() throws Exception {
+        ModelCatalog catalog = () -> List.of(new ProviderModel(
+                "claude-sonnet-4-5", "Claude Sonnet 4.5", ProviderId.ANTHROPIC,
+                List.of("sonnet"), Optional.of(true), 200_000));
+        AnthropicHttpClient anthropic = mock(AnthropicHttpClient.class);
+        HttpResponse<InputStream> upstream = mock(HttpResponse.class);
+        when(upstream.statusCode()).thenReturn(200);
+        when(upstream.body()).thenReturn(new ByteArrayInputStream("""
+                event: message_start
+                data: {"message":{"id":"msg_proxy","model":"claude-sonnet-4-5","usage":{"input_tokens":2,"output_tokens":0}}}
+
+                event: content_block_start
+                data: {"index":0,"content_block":{"type":"text","text":""}}
+
+                event: content_block_delta
+                data: {"index":0,"delta":{"type":"text_delta","text":"routed"}}
+
+                event: content_block_stop
+                data: {"index":0}
+
+                event: message_delta
+                data: {"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}
+
+                event: message_stop
+                data: {}
+
+                """.getBytes(StandardCharsets.UTF_8)));
+        when(anthropic.request(any(URI.class), eq("POST"), anyString(), anyMap()))
+                .thenReturn(upstream);
+        ProxyServer server = new ProxyServer(
+                minimalConfig(), client, catalog, new UsageTracker(),
+                new ApiKeyStore(Map.of(), null, null), anthropic,
+                AnthropicCompatibilityProfile.claudeCodeOAuth(), ProviderId.ANTHROPIC);
+        server.getApp().start(0);
+
+        try {
+            HttpResponse<String> response = HttpClient.newHttpClient().send(
+                    post(server.getApp().port(), "/v1/responses", """
+                            {"model":"claude-sonnet-4-5","input":"hello"}
+                            """),
+                    HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, response.statusCode());
+            assertTrue(response.body().contains("routed"));
+            verify(anthropic).request(any(URI.class), eq("POST"),
+                    contains("claude-sonnet-4-5"), anyMap());
+        } finally {
+            server.getApp().stop();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void codexOnlyChatStripsProviderQualifierBeforeUpstream() throws Exception {
+        ModelCatalog catalog = codexCatalog("gpt-5.6-sol");
+        HttpResponse<InputStream> upstream = mock(HttpResponse.class);
+        when(upstream.statusCode()).thenReturn(400);
+        when(upstream.body()).thenReturn(new ByteArrayInputStream(
+                "{\"detail\":\"probe response\"}".getBytes(StandardCharsets.UTF_8)));
+        when(client.request(eq("/responses"), eq("POST"), anyString(), any()))
+                .thenReturn(upstream);
+        ProxyServer server = new ProxyServer(
+                minimalConfig(), client, catalog, new UsageTracker(),
+                new ApiKeyStore(Map.of(), null, null), null, null, ProviderId.CODEX);
+        server.getApp().start(0);
+
+        try {
+            HttpResponse<String> response = HttpClient.newHttpClient().send(
+                    post(server.getApp().port(), "/v1/chat/completions", """
+                            {"model":"codex/gpt-5.6-sol","stream":true,
+                             "messages":[{"role":"user","content":"hello"}]}
+                            """),
+                    HttpResponse.BodyHandlers.ofString());
+
+            ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+            verify(client).request(eq("/responses"), eq("POST"), body.capture(), any());
+            assertEquals("gpt-5.6-sol",
+                    com.aiproxyoauth.util.Json.MAPPER.readTree(body.getValue()).path("model").asText());
+            assertEquals(400, response.statusCode());
+        } finally {
+            server.getApp().stop();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void codexOnlyResponsesStripsProviderQualifierBeforeUpstream() throws Exception {
+        ModelCatalog catalog = codexCatalog("gpt-5.6-sol");
+        HttpResponse<InputStream> upstream = mock(HttpResponse.class);
+        when(upstream.statusCode()).thenReturn(400);
+        when(upstream.body()).thenReturn(new ByteArrayInputStream(
+                "{\"detail\":\"probe response\"}".getBytes(StandardCharsets.UTF_8)));
+        when(client.request(eq("/responses"), eq("POST"), anyString(), any()))
+                .thenReturn(upstream);
+        ProxyServer server = new ProxyServer(
+                minimalConfig(), client, catalog, new UsageTracker(),
+                new ApiKeyStore(Map.of(), null, null), null, null, ProviderId.CODEX);
+        server.getApp().start(0);
+
+        try {
+            HttpResponse<String> response = HttpClient.newHttpClient().send(
+                    post(server.getApp().port(), "/v1/responses", """
+                            {"model":"codex/gpt-5.6-sol","input":"hello"}
+                            """),
+                    HttpResponse.BodyHandlers.ofString());
+
+            ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+            verify(client).request(eq("/responses"), eq("POST"), body.capture(), any());
+            assertEquals("gpt-5.6-sol",
+                    com.aiproxyoauth.util.Json.MAPPER.readTree(body.getValue()).path("model").asText());
+            assertEquals(400, response.statusCode());
+        } finally {
+            server.getApp().stop();
+        }
+    }
+
+    @Test
+    void codexOnlyRejectsQualifiedAnthropicModelAsDisabled() throws Exception {
+        ProxyServer server = new ProxyServer(
+                minimalConfig(), client, codexCatalog("gpt-5.6-sol"), new UsageTracker(),
+                new ApiKeyStore(Map.of(), null, null), null, null, ProviderId.CODEX);
+        server.getApp().start(0);
+
+        try {
+            HttpResponse<String> response = HttpClient.newHttpClient().send(
+                    post(server.getApp().port(), "/v1/chat/completions", """
+                            {"model":"anthropic/claude-sonnet-4-6",
+                             "messages":[{"role":"user","content":"hello"}]}
+                            """),
+                    HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(400, response.statusCode());
+            assertTrue(response.body().contains("provider_not_enabled"), response.body());
+            verifyNoInteractions(client);
+        } finally {
+            server.getApp().stop();
+        }
+    }
+
+    private static ModelCatalog codexCatalog(String model) {
+        return () -> List.of(new ProviderModel(
+                model, model, ProviderId.CODEX, List.of(), Optional.empty(), 0));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void matchedAnthropic404PreservesUpstreamErrorInsteadOfBecomingRouteNotFound()
+            throws Exception {
+        ModelCatalog catalog = () -> List.of(new ProviderModel(
+                "claude-opus-5", "Claude Opus 5", ProviderId.ANTHROPIC,
+                List.of(), Optional.of(true), 200_000));
+        AnthropicHttpClient anthropic = mock(AnthropicHttpClient.class);
+        HttpResponse<InputStream> upstream = mock(HttpResponse.class);
+        when(upstream.statusCode()).thenReturn(404);
+        when(upstream.body()).thenReturn(new ByteArrayInputStream("""
+                {"type":"error","error":{"type":"not_found_error",
+                 "message":"Model is not available for this account"}}
+                """.getBytes(StandardCharsets.UTF_8)));
+        when(anthropic.request(any(URI.class), eq("POST"), anyString(), anyMap()))
+                .thenReturn(upstream);
+        ProxyServer server = new ProxyServer(
+                minimalConfig(), client, catalog, new UsageTracker(),
+                new ApiKeyStore(Map.of(), null, null), anthropic,
+                AnthropicCompatibilityProfile.claudeCodeOAuth(), ProviderId.ANTHROPIC);
+        server.getApp().start(0);
+
+        try {
+            HttpResponse<String> response = HttpClient.newHttpClient().send(
+                    post(server.getApp().port(), "/v1/chat/completions", """
+                            {"model":"claude-opus-5","stream":true,
+                             "messages":[{"role":"user","content":"hello"}]}
+                            """),
+                    HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(404, response.statusCode());
+            assertTrue(response.body().contains("Model is not available for this account"));
+            assertFalse(response.body().contains("Route not found."));
+        } finally {
+            server.getApp().stop();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void nativeMessagesAcceptsXApiKeyAndNeverForwardsItUpstream() throws Exception {
+        String proxyKey = "sk-proxy-native123456789012345678";
+        ModelCatalog catalog = () -> List.of(new ProviderModel(
+                "claude-sonnet-4-5", "Claude Sonnet", ProviderId.ANTHROPIC,
+                List.of(), Optional.of(true), 200_000));
+        AnthropicHttpClient anthropic = mock(AnthropicHttpClient.class);
+        HttpResponse<InputStream> upstream = mock(HttpResponse.class);
+        when(upstream.statusCode()).thenReturn(200);
+        when(upstream.headers()).thenReturn(java.net.http.HttpHeaders.of(
+                Map.of("content-type", List.of("application/json")), (a, b) -> true));
+        when(upstream.body()).thenReturn(new ByteArrayInputStream("""
+                {"id":"msg_1","type":"message","content":[],
+                 "usage":{"input_tokens":1,"output_tokens":1}}
+                """.getBytes(StandardCharsets.UTF_8)));
+        when(anthropic.request(any(URI.class), eq("POST"), anyString(),
+                any(AnthropicRequestOptions.class))).thenReturn(upstream);
+        ProxyServer server = new ProxyServer(
+                minimalConfig(), client, catalog, new UsageTracker(),
+                new ApiKeyStore(Map.of(proxyKey, "native"), null, null), anthropic,
+                AnthropicCompatibilityProfile.claudeCodeOAuth(), ProviderId.ANTHROPIC);
+        server.getApp().start(0);
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(
+                            "http://127.0.0.1:" + server.getApp().port() + "/v1/messages"))
+                    .header("Content-Type", "application/json")
+                    .header("anthropic-version", "2023-06-01")
+                    .header("x-api-key", proxyKey)
+                    .POST(HttpRequest.BodyPublishers.ofString("""
+                            {"model":"claude-sonnet-4-5","max_tokens":10,
+                             "messages":[{"role":"user","content":"hi"}]}
+                            """))
+                    .build();
+            HttpResponse<String> response = HttpClient.newHttpClient().send(
+                    request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(200, response.statusCode());
+            ArgumentCaptor<AnthropicRequestOptions> options =
+                    ArgumentCaptor.forClass(AnthropicRequestOptions.class);
+            verify(anthropic).request(any(URI.class), eq("POST"), anyString(), options.capture());
+            assertFalse(options.getValue().headers().containsKey("x-api-key"));
+        } finally {
+            server.getApp().stop();
+        }
+    }
+
+    @Test
+    void nativeMessagesRejectsConflictingClientCredentialsWithNativeError() throws Exception {
+        String first = "sk-proxy-first123456789012345678";
+        String second = "sk-proxy-second12345678901234567";
+        ProxyServer server = new ProxyServer(
+                minimalConfig(), client, (ModelCatalog) () -> List.of(), new UsageTracker(),
+                new ApiKeyStore(Map.of(first, "first", second, "second"), null, null));
+        server.getApp().start(0);
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(
+                            "http://127.0.0.1:" + server.getApp().port() + "/v1/messages"))
+                    .header("Authorization", "Bearer " + first)
+                    .header("x-api-key", second)
+                    .header("anthropic-version", "2023-06-01")
+                    .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                    .build();
+            HttpResponse<String> response = HttpClient.newHttpClient().send(
+                    request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(401, response.statusCode());
+            assertTrue(response.body().contains("authentication_error"));
+            assertTrue(response.body().contains("\"type\":\"error\""));
+        } finally {
+            server.getApp().stop();
+        }
+    }
+
+    @Test
+    void nativeMessagesReturnsNativeUnavailableWhenAnthropicIsDisabled() throws Exception {
+        ProxyServer server = new ProxyServer(
+                minimalConfig(), client, (ModelCatalog) () -> List.of(), new UsageTracker(),
+                new ApiKeyStore(Map.of(), null, null));
+        server.getApp().start(0);
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(
+                            "http://127.0.0.1:" + server.getApp().port() + "/v1/messages"))
+                    .header("anthropic-version", "2023-06-01")
+                    .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                    .build();
+            HttpResponse<String> response = HttpClient.newHttpClient().send(
+                    request, HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(503, response.statusCode());
+            assertTrue(response.body().contains("api_error"));
+        } finally {
+            server.getApp().stop();
+        }
     }
 
     @Test

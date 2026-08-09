@@ -23,7 +23,6 @@ class AuthFileResolverTest {
         assertFalse(candidates.isEmpty());
         // Should contain at least the user home candidates
         String userHome = System.getProperty("user.home");
-        assertTrue(candidates.contains(Path.of(userHome, ".chatgpt-local", "auth.json").toString()));
         assertTrue(candidates.contains(Path.of(userHome, ".codex", "auth.json").toString()));
     }
 

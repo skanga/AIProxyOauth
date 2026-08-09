@@ -23,12 +23,19 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build fat JAR
-        run: mvn -B clean package -DskipTests
-
       - name: Get version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          POM_VERSION="$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)"
+          test "$VERSION" = "$POM_VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Test live-check tooling offline
+        run: python3 -m unittest scripts/test_live_compatibility.py
+
+      - name: Build and test fat JAR
+        run: mvn -B clean package
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

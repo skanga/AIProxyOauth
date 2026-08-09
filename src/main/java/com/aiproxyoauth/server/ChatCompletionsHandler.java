@@ -7,6 +7,7 @@ import com.aiproxyoauth.config.ServerConfig;
 import com.aiproxyoauth.logging.RequestLogger;
 import com.aiproxyoauth.model.CodexInstructionsProvider;
 import com.aiproxyoauth.model.ModelAliasResolver;
+import com.aiproxyoauth.provider.ModelRoute;
 import com.aiproxyoauth.sse.SseCollector;
 import com.aiproxyoauth.sse.SseParser;
 import com.aiproxyoauth.transport.CodexHttpClient;
@@ -22,7 +23,7 @@ import java.util.*;
 
 import static com.aiproxyoauth.server.JsonHelper.MAPPER;
 
-public class ChatCompletionsHandler implements Handler {
+public class ChatCompletionsHandler implements Handler, ChatBackend {
 
     private final CodexHttpClient client;
     private final ServerConfig config;
@@ -49,6 +50,11 @@ public class ChatCompletionsHandler implements Handler {
 
     @Override
     public void handle(Context ctx) throws Exception {
+        handle(ctx, null);
+    }
+
+    @Override
+    public void handle(Context ctx, ModelRoute route) throws Exception {
         String requestId = shouldUseRequestContext() ? requestId(ctx) : requestLogger.nextRequestId();
         String bodyStr = ctx.body();
         requestLogger.logInbound(requestId, ctx, bodyStr);
@@ -74,7 +80,7 @@ public class ChatCompletionsHandler implements Handler {
 
         boolean wantsStream = body.path("stream").asBoolean(false);
         AccessLogFields.mode(ctx, wantsStream ? "stream" : "sync");
-        // When --models was specified, default to the first configured model.
+        // When --codex-models was specified, default to the first configured model.
         // ServerConfig.DEFAULT_MODEL is the last-resort fallback for when no models were
         // configured & auto-discovery failed - in that case no better default is available
         // without an extra ModelResolver call. Callers can always override via the "model" field.
@@ -82,7 +88,10 @@ public class ChatCompletionsHandler implements Handler {
                 ? config.models().getFirst() : ServerConfig.DEFAULT_MODEL;
         String model = body.path("model").asText(defaultModel);
         ModelAliasResolver.ResolvedModel resolvedModel = modelAliasResolver.resolve(model);
-        String upstreamModel = resolvedModel.model() != null ? resolvedModel.model() : model;
+        String upstreamModel = route == null
+                ? (resolvedModel.model() != null ? resolvedModel.model() : model)
+                : route.upstreamModel();
+        String responseModel = route == null ? upstreamModel : route.requestedModel();
 
         // Build upstream Responses API request
         ObjectNode upstreamBody = buildUpstreamBody(body, upstreamModel, resolvedModel.reasoningEffort());
@@ -107,9 +116,9 @@ public class ChatCompletionsHandler implements Handler {
             }
 
             if (wantsStream) {
-                streamToClient(ctx, responseStream, upstreamModel);
+                streamToClient(ctx, responseStream, responseModel);
             } else {
-                nonStreamToClient(ctx, responseStream, upstreamModel);
+                nonStreamToClient(ctx, responseStream, responseModel);
             }
         }
     }

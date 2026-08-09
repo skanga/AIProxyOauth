@@ -109,6 +109,57 @@ class RequestLoggerTest {
         assertTrue(entry.path("body").asText().length() < body.length());
     }
 
+    @Test
+    void recursivelyRedactsOauthTokensCodesAndReasoningSignatures(
+            @org.junit.jupiter.api.io.TempDir Path tempDir) throws Exception {
+        RequestLogger logger = new RequestLogger(true, tempDir);
+        String body = """
+                {"access_token":"access-secret","nested":[
+                  {"refresh_token":"refresh-secret","code_verifier":"verifier-secret"},
+                  {"code":"oauth-code","reasoning_signature":"signature-secret"},
+                  {"type":"redacted_thinking","data":{"opaque":"thinking-secret"}},
+                  {"redacted_data":{"opaque":"responses-thinking-secret"}}
+                ],"prompt":"preserved"}
+                """;
+
+        logger.logUpstreamRequest("req_oauth", "POST", "/v1/messages", Map.of(), body);
+
+        JsonNode loggedBody = Json.MAPPER.readTree(readOnlyJsonFile(tempDir).path("body").asText());
+        assertEquals("[REDACTED]", loggedBody.path("access_token").asText());
+        assertEquals("[REDACTED]", loggedBody.path("nested").get(0).path("refresh_token").asText());
+        assertEquals("[REDACTED]", loggedBody.path("nested").get(0).path("code_verifier").asText());
+        assertEquals("[REDACTED]", loggedBody.path("nested").get(1).path("code").asText());
+        assertEquals(
+                "[REDACTED]",
+                loggedBody.path("nested").get(1).path("reasoning_signature").asText()
+        );
+        assertEquals(
+                "[REDACTED]",
+                loggedBody.path("nested").get(2).path("data").asText()
+        );
+        assertEquals(
+                "[REDACTED]",
+                loggedBody.path("nested").get(3).path("redacted_data").asText()
+        );
+        assertEquals("preserved", loggedBody.path("prompt").asText());
+    }
+
+    @Test
+    void suppressesEntireMalformedBodyOnOauthPath(
+            @org.junit.jupiter.api.io.TempDir Path tempDir) throws Exception {
+        RequestLogger logger = new RequestLogger(true, tempDir);
+
+        logger.logUpstreamRequest(
+                "req_oauth",
+                "POST",
+                "/v1/oauth/token",
+                Map.of(),
+                "refresh_token=secret-that-must-not-appear"
+        );
+
+        assertEquals("[REDACTED]", readOnlyJsonFile(tempDir).path("body").asText());
+    }
+
     private static JsonNode readOnlyJsonFile(Path logDir) throws Exception {
         try (var files = Files.list(logDir)) {
             List<Path> jsonFiles = files.filter(path -> path.getFileName().toString().endsWith(".json")).toList();

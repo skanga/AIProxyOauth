@@ -7,6 +7,7 @@ import com.aiproxyoauth.config.ServerConfig;
 import com.aiproxyoauth.logging.RequestLogger;
 import com.aiproxyoauth.model.CodexInstructionsProvider;
 import com.aiproxyoauth.model.ModelAliasResolver;
+import com.aiproxyoauth.provider.ModelRoute;
 import com.aiproxyoauth.sse.SseCollector;
 import com.aiproxyoauth.state.ResponsesState;
 import com.aiproxyoauth.transport.CodexHttpClient;
@@ -27,7 +28,7 @@ import java.util.Map;
 
 import static com.aiproxyoauth.server.JsonHelper.MAPPER;
 
-public class ResponsesHandler implements Handler {
+public class ResponsesHandler implements Handler, ResponsesBackend {
 
     private static final int MAX_REPLAY_NAMESPACES = 512;
     private static final int MAX_SSE_BOOKKEEPING_LINE_BYTES = 64 * 1024;
@@ -65,10 +66,19 @@ public class ResponsesHandler implements Handler {
 
     @Override
     public void handle(Context ctx) throws Exception {
-        create(ctx);
+        create(ctx, null);
     }
 
     public void create(Context ctx) throws Exception {
+        create(ctx, null);
+    }
+
+    @Override
+    public void handle(Context ctx, ModelRoute route) throws Exception {
+        create(ctx, route);
+    }
+
+    private void create(Context ctx, ModelRoute route) throws Exception {
         String requestId = shouldUseRequestContext() ? requestId(ctx) : requestLogger.nextRequestId();
         String bodyStr = ctx.body();
         requestLogger.logInbound(requestId, ctx, bodyStr);
@@ -97,7 +107,8 @@ public class ResponsesHandler implements Handler {
         ObjectNode expanded = state.expandRequestBody(canonical);
 
         // Normalize body
-        ObjectNode normalized = requestSanitizer.sanitize(normalizeBody(expanded), config.store());
+        ObjectNode normalized = requestSanitizer.sanitize(
+                normalizeBody(expanded, route), config.store());
         String promptCacheKey = config.forwardPromptCacheHeaders()
                 ? normalized.path("prompt_cache_key").asText(null)
                 : null;
@@ -147,12 +158,14 @@ public class ResponsesHandler implements Handler {
         }
     }
 
-    private ObjectNode normalizeBody(ObjectNode body) {
+    private ObjectNode normalizeBody(ObjectNode body, ModelRoute route) {
         ObjectNode normalized = body.deepCopy();
         normalized.put("stream", true);
         String requestedModel = normalized.path("model").asText(ServerConfig.DEFAULT_MODEL);
         ModelAliasResolver.ResolvedModel resolvedModel = modelAliasResolver.resolve(requestedModel);
-        if (resolvedModel.model() != null && !resolvedModel.model().isBlank()) {
+        if (route != null) {
+            normalized.put("model", route.upstreamModel());
+        } else if (resolvedModel.model() != null && !resolvedModel.model().isBlank()) {
             normalized.put("model", resolvedModel.model());
         }
 

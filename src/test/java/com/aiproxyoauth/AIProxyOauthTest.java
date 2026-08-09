@@ -1,5 +1,6 @@
 package com.aiproxyoauth;
 
+import com.aiproxyoauth.config.ServerConfig;
 import com.aiproxyoauth.util.ApiKeyUtils;
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
@@ -11,7 +12,8 @@ import java.io.StringWriter;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.sun.net.httpserver.HttpServer;
@@ -21,12 +23,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class AIProxyOauthTest {
 
     private static final PrintStream NULL_STREAM = new PrintStream(OutputStream.nullOutputStream());
-
-    private static String jwtWithPayload(String payload) {
-        String encodedPayload = Base64.getUrlEncoder().withoutPadding()
-                .encodeToString(payload.getBytes(StandardCharsets.UTF_8));
-        return "header." + encodedPayload + ".signature";
-    }
 
     @Test
     void testHelp() {
@@ -38,7 +34,7 @@ class AIProxyOauthTest {
         int exitCode = cmd.execute("--help");
         assertEquals(0, exitCode);
         String output = sw.toString();
-        assertTrue(output.contains("AIProxyOauth"), "Output was: " + output);
+        assertTrue(output.contains("OAuth proxy exposing"), "Output was: " + output);
     }
 
     @Test
@@ -50,7 +46,7 @@ class AIProxyOauthTest {
         
         int exitCode = cmd.execute("--version");
         assertEquals(0, exitCode);
-        assertTrue(sw.toString().contains("AIProxyOauth 1.2.0"));
+        assertTrue(sw.toString().contains("AIProxyOauth 2.0.0"));
     }
 
     @Test
@@ -60,7 +56,7 @@ class AIProxyOauthTest {
         CommandLine cmd = new CommandLine(app);
         cmd.setOut(new PrintWriter(sw));
         
-        int exitCode = cmd.execute("--generate-key");
+        int exitCode = cmd.execute("key", "generate");
         assertEquals(0, exitCode);
         String output = sw.toString().trim();
         assertTrue(output.startsWith("sk-proxy-"));
@@ -74,7 +70,7 @@ class AIProxyOauthTest {
         CommandLine cmd = new CommandLine(app);
         cmd.setOut(new PrintWriter(sw));
 
-        int exitCode = cmd.execute("--generate-key", "myapp");
+        int exitCode = cmd.execute("key", "generate", "myapp");
         assertEquals(0, exitCode);
         String output = sw.toString().trim();
         assertTrue(output.startsWith("myapp:sk-proxy-"));
@@ -117,16 +113,16 @@ class AIProxyOauthTest {
         
         // Use reflection or package-private access to set private fields for testing buildServerConfig
         // But for parseModelList we can test it directly if we set the field
-        cmd.parseArgs("--models", "gpt-4, gpt-3.5-turbo , , gpt-4o");
+        cmd.parseArgs("--codex-models", "gpt-4, gpt-3.5-turbo , , gpt-4o");
         java.util.List<String> models = app.parseModelList();
         assertEquals(java.util.List.of("gpt-4", "gpt-3.5-turbo", "gpt-4o"), models);
     }
 
     @Test
     void testBuildServerConfig() throws Exception {
-        AIProxyOauth app = new AIProxyOauth();
+        AIProxyOauth app = new AIProxyOauth(() -> Map.of("AIPROXY_ADMIN_CLIENT_KEY", "adm"));
         CommandLine cmd = new CommandLine(app);
-        cmd.parseArgs("--host", "0.0.0.0", "--port", "9000", "--models", "m1,m2", "--admin-key", "adm");
+        cmd.parseArgs("--host", "0.0.0.0", "--port", "9000", "--codex-models", "m1,m2");
         
         com.aiproxyoauth.config.ServerConfig config = app.buildServerConfig();
         assertEquals("0.0.0.0", config.host());
@@ -137,7 +133,7 @@ class AIProxyOauthTest {
 
     @Test
     void testBuildServerConfigAllowsAnyCorsOnlyWhenFlagProvided() throws Exception {
-        AIProxyOauth app = new AIProxyOauth();
+        AIProxyOauth app = new AIProxyOauth(() -> Map.of("AIPROXY_CLIENT_KEYS", "sk-proxy-test"));
         CommandLine cmd = new CommandLine(app);
         cmd.parseArgs("--allow-any-cors");
 
@@ -150,11 +146,11 @@ class AIProxyOauthTest {
     void testBuildServerConfigParsesCorsOrigins() throws Exception {
         AIProxyOauth app = new AIProxyOauth();
         CommandLine cmd = new CommandLine(app);
-        cmd.parseArgs("--cors-origin", "http://one.example,http://two.example");
+        cmd.parseArgs("--cors-origin", "https://one.example,https://two.example");
 
         com.aiproxyoauth.config.ServerConfig config = app.buildServerConfig();
         assertFalse(config.allowAnyCors());
-        assertEquals(java.util.List.of("http://one.example", "http://two.example"), config.allowedCorsOrigins());
+        assertEquals(java.util.List.of("https://one.example", "https://two.example"), config.allowedCorsOrigins());
     }
 
     @Test
@@ -166,7 +162,7 @@ class AIProxyOauthTest {
         cmd.parseArgs(
                 "--log-requests",
                 "--request-log-dir", logDir.toString(),
-                "--forward-prompt-cache-headers"
+                "--codex-forward-prompt-cache-headers"
         );
 
         com.aiproxyoauth.config.ServerConfig config = app.buildServerConfig();
@@ -192,9 +188,11 @@ class AIProxyOauthTest {
         CommandLine cmd = new CommandLine(app);
         
         java.nio.file.Path keysFile = tempDir.resolve("keys.txt");
-        java.nio.file.Files.writeString(keysFile, "admin:sk-admin-123\nuser1:sk-user-123\n");
+        java.nio.file.Path adminFile = tempDir.resolve("admin.txt");
+        java.nio.file.Files.writeString(keysFile, "user1:sk-user-123\n");
+        java.nio.file.Files.writeString(adminFile, "sk-admin-123\n");
         
-        cmd.parseArgs("--api-keys-file", keysFile.toString());
+        cmd.parseArgs("--client-keys-file", keysFile.toString(), "--admin-client-key-file", adminFile.toString());
         
         com.aiproxyoauth.config.ServerConfig config = app.buildServerConfig();
         assertEquals("sk-admin-123", config.adminKey());
@@ -223,168 +221,6 @@ class AIProxyOauthTest {
         } finally {
             System.setErr(saved);
         }
-    }
-
-    @Test
-    void testPrintStartupBanner(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
-        AIProxyOauth app = new AIProxyOauth();
-        StringWriter sw = new StringWriter();
-        CommandLine cmd = new CommandLine(app);
-        cmd.setOut(new PrintWriter(sw));
-
-        java.nio.file.Path authFile = tempDir.resolve("auth.json");
-        java.nio.file.Files.writeString(authFile, "{}");
-        
-        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
-                "127.0.0.1", 10531, null, null, "http://base", null, null, authFile.toString(), "", false, java.util.Map.of("k1", "u1"), "adm"
-        );
-        
-        app.printStartupBanner(config, java.util.List.of("gpt-4"));
-        
-        String output = sw.toString();
-        assertTrue(output.contains("Endpoint: http://127.0.0.1:10531/v1"));
-        assertTrue(output.contains("Models:   gpt-4"));
-        assertTrue(output.contains("Client API key enforcement: enabled"));
-        assertTrue(output.contains("Network access: Local access only"));
-        assertTrue(output.contains("CORS: disabled"));
-        assertTrue(output.contains("Auth file: " + authFile));
-        assertTrue(output.contains("Keys:     1 key(s) configured (u1)"));
-        assertTrue(output.contains("Admin:    key configured"));
-    }
-
-    @Test
-    void testPrintStartupBannerShowsAuthenticatedUserAndPlan(
-            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) {
-        AIProxyOauth app = new AIProxyOauth();
-        StringWriter sw = new StringWriter();
-        CommandLine cmd = new CommandLine(app);
-        cmd.setOut(new PrintWriter(sw));
-        java.nio.file.Path authFile = tempDir.resolve("auth.json");
-        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
-                "127.0.0.1", 10531, null, null, "http://base", null, null, authFile.toString(), "", false,
-                java.util.Map.of(), null
-        );
-        String idToken = jwtWithPayload("""
-                {"email":"person@example.com","https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}
-                """);
-
-        app.printStartupBanner(config, java.util.List.of(), authFile.toString(), false, null, idToken);
-
-        String output = sw.toString();
-        assertTrue(output.contains("Email: person@example.com"));
-        assertTrue(output.contains("Plan:  plus"));
-    }
-
-    @Test
-    void testPrintStartupBannerOmitsUserDetailsForMalformedIdToken(
-            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) {
-        AIProxyOauth app = new AIProxyOauth();
-        StringWriter sw = new StringWriter();
-        CommandLine cmd = new CommandLine(app);
-        cmd.setOut(new PrintWriter(sw));
-        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
-                "127.0.0.1", 10531, null, null, "http://base", null, null, tempDir.resolve("auth.json").toString(), "", false,
-                java.util.Map.of(), null
-        );
-
-        app.printStartupBanner(config, java.util.List.of(), null, false, null, "not-a-jwt");
-
-        assertFalse(sw.toString().contains("Email:"));
-        assertFalse(sw.toString().contains("Plan:"));
-    }
-
-    @Test
-    void testPrintStartupBannerShowsOpenModeAndFullNetworkAccess(
-            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
-        AIProxyOauth app = new AIProxyOauth();
-        StringWriter sw = new StringWriter();
-        CommandLine cmd = new CommandLine(app);
-        cmd.setOut(new PrintWriter(sw));
-
-        java.nio.file.Path authFile = tempDir.resolve("auth.json");
-        java.nio.file.Files.writeString(authFile, "{}");
-
-        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
-                "0.0.0.0", 10531, null, null, "http://base", null, null, authFile.toString(), "", false, java.util.Map.of("sk-proxy-key", "user"), null
-        );
-
-        app.printStartupBanner(config, java.util.List.of());
-
-        String output = sw.toString();
-        assertTrue(output.contains("Client API key enforcement: enabled"));
-        assertTrue(output.contains("Network access: Full network access"));
-        assertTrue(output.contains("CORS: disabled"));
-        assertTrue(output.contains("Auth file: " + authFile));
-    }
-
-    @Test
-    void testPrintStartupBannerShowsAnyCors(
-            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
-        AIProxyOauth app = new AIProxyOauth();
-        StringWriter sw = new StringWriter();
-        CommandLine cmd = new CommandLine(app);
-        cmd.setOut(new PrintWriter(sw));
-
-        java.nio.file.Path authFile = tempDir.resolve("auth.json");
-        java.nio.file.Files.writeString(authFile, "{}");
-
-        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
-                "127.0.0.1", 10531, null, null, "http://base", null, null, authFile.toString(), "", false,
-                java.util.Map.of(), null, true, null
-        );
-
-        app.printStartupBanner(config, java.util.List.of());
-
-        assertTrue(sw.toString().contains("CORS: any origin"));
-    }
-
-    @Test
-    void testPrintStartupBannerShowsConfiguredCorsOrigins(
-            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
-        AIProxyOauth app = new AIProxyOauth();
-        StringWriter sw = new StringWriter();
-        CommandLine cmd = new CommandLine(app);
-        cmd.setOut(new PrintWriter(sw));
-
-        java.nio.file.Path authFile = tempDir.resolve("auth.json");
-        java.nio.file.Files.writeString(authFile, "{}");
-
-        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
-                "127.0.0.1", 10531, null, null, "http://base", null, null, authFile.toString(), "", false,
-                java.util.Map.of(), null, false, java.util.List.of("http://one.example", "http://two.example")
-        );
-
-        app.printStartupBanner(config, java.util.List.of());
-
-        assertTrue(sw.toString().contains("CORS: http://one.example, http://two.example"));
-    }
-
-    @Test
-    void testPrintStartupBannerShowsStartupProbeResponse(
-            @org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
-        AIProxyOauth app = new AIProxyOauth();
-        StringWriter sw = new StringWriter();
-        CommandLine cmd = new CommandLine(app);
-        cmd.setOut(new PrintWriter(sw));
-
-        java.nio.file.Path authFile = tempDir.resolve("auth.json");
-        java.nio.file.Files.writeString(authFile, "{}");
-
-        com.aiproxyoauth.config.ServerConfig config = new com.aiproxyoauth.config.ServerConfig(
-                "127.0.0.1", 10531, null, null, "http://base", null, null, authFile.toString(), "", false, java.util.Map.of(), null
-        );
-
-        app.printStartupBanner(
-                config,
-                java.util.List.of("gpt-4"),
-                authFile.toString(),
-                false,
-                new AIProxyOauth.StartupProbeResult(true, 200, "HTTP 200", "Hello from startup probe", "gpt-4")
-        );
-
-        String output = sw.toString();
-        assertTrue(output.contains("Startup check: chat completion OK (model: gpt-4)"));
-        assertTrue(output.contains("Startup response: Hello from startup probe"));
     }
 
     @Test
@@ -436,6 +272,80 @@ class AIProxyOauthTest {
             assertTrue(body.get().contains("\"role\":\"user\""), "Body was: " + body.get());
             assertTrue(body.get().contains("\"content\":\"Hello!\""), "Body was: " + body.get());
             assertTrue(body.get().contains("\"stream\":true"), "Body was: " + body.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void anthropicStartupProbeUsesNativeMessagesEndpoint() throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        AtomicReference<String> path = new AtomicReference<>();
+        AtomicReference<String> body = new AtomicReference<>();
+        AtomicReference<String> key = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/messages", exchange -> {
+            path.set(exchange.getRequestURI().getPath());
+            key.set(exchange.getRequestHeaders().getFirst("x-api-key"));
+            body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = """
+                    {"id":"msg_test","type":"message","role":"assistant","content":[{"type":"text","text":"OK"}]}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            ServerConfig config = new ServerConfig("127.0.0.1", server.getAddress().getPort(), null,
+                    null, "http://base", null, null, null, "", false, Map.of(), null);
+
+            AIProxyOauth.StartupProbeResult result = app.verifyAnthropicThroughProxy(
+                    config, List.of("claude-sonnet-test"), "sk-proxy-test", client);
+
+            assertTrue(result.success(), result.message());
+            assertEquals("/v1/messages", path.get());
+            assertEquals("sk-proxy-test", key.get());
+            assertTrue(body.get().contains("\"model\":\"claude-sonnet-test\""));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void testStartupProbePrefersSonnetOverCatalogFirstOpus() throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        AtomicReference<String> body = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = """
+                    data: {"choices":[{"delta":{"content":"ready"}}]}
+
+                    data: [DONE]
+
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try (HttpClient httpClient = HttpClient.newHttpClient()) {
+            ServerConfig config = new ServerConfig(
+                    "127.0.0.1", server.getAddress().getPort(), null, null,
+                    "http://base", null, null, null, "", false, Map.of(), null);
+
+            AIProxyOauth.StartupProbeResult result = app.verifyChatCompletionThroughProxy(
+                    config,
+                    List.of("claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"),
+                    null,
+                    httpClient);
+
+            assertTrue(result.success(), result.message());
+            assertEquals("claude-sonnet-5", result.model());
+            assertTrue(body.get().contains("\"model\":\"claude-sonnet-5\""), body.get());
         } finally {
             server.stop(0);
         }
@@ -578,14 +488,14 @@ class AIProxyOauthTest {
 
     @Test
     void testParseApiKeyMap(@org.junit.jupiter.api.io.TempDir java.nio.file.Path tempDir) throws Exception {
-        AIProxyOauth app = new AIProxyOauth();
+        AIProxyOauth app = new AIProxyOauth(() -> Map.of("AIPROXY_CLIENT_KEYS", "inlinekey1,app1:inlinekey2"));
         CommandLine cmd = new CommandLine(app);
         
         // Create a temp keys file
         java.nio.file.Path keysFile = tempDir.resolve("keys.txt");
         java.nio.file.Files.writeString(keysFile, "# Comment line\nfilekey1\napp2:filekey2\n");
         
-        cmd.parseArgs("--api-key", "inlinekey1,app1:inlinekey2", "--api-keys-file", keysFile.toString());
+        cmd.parseArgs("--client-keys-file", keysFile.toString());
         
         java.util.Map<String, String> keyMap = app.parseApiKeyMap();
         

@@ -1,6 +1,7 @@
 package com.aiproxyoauth.logging;
 
 import com.aiproxyoauth.util.Json;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.javalin.http.Context;
@@ -14,11 +15,24 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public final class RequestLogger {
     private static final int MAX_BODY_BYTES = 256 * 1024;
     private static final String REDACTED = "[REDACTED]";
+    private static final Set<String> SENSITIVE_JSON_FIELDS = Set.of(
+            "access_token",
+            "refresh_token",
+            "oauth_code",
+            "code",
+            "code_verifier",
+            "signature",
+            "reasoning_signature",
+            "thinking_signature",
+            "encrypted_content",
+            "redacted_data"
+    );
 
     private final boolean enabled;
     private final Path logDir;
@@ -41,7 +55,7 @@ public final class RequestLogger {
         entry.put("path", ctx.path());
         entry.put("status", ctx.statusCode());
         entry.set("headers", redactStringHeaders(ctx.headerMap()));
-        putBody(entry, body);
+        putBody(entry, body, ctx.path());
         write(entry, requestId, "inbound");
     }
 
@@ -53,7 +67,7 @@ public final class RequestLogger {
         entry.put("method", method);
         entry.put("path", path);
         entry.set("headers", redactStringHeaders(headers));
-        putBody(entry, body);
+        putBody(entry, body, path);
         write(entry, requestId, "upstream_request");
     }
 
@@ -69,7 +83,7 @@ public final class RequestLogger {
         ObjectNode entry = baseEntry(requestId, "upstream_response");
         entry.put("status", status);
         entry.set("headers", redactListHeaders(headers));
-        putBody(entry, bodyPreview);
+        putBody(entry, bodyPreview, null);
         write(entry, requestId, "upstream_response");
     }
 
@@ -122,10 +136,54 @@ public final class RequestLogger {
                 || normalized.contains("key");
     }
 
-    private static void putBody(ObjectNode entry, String body) {
-        BodyCapture capture = captureBody(body);
+    private static void putBody(ObjectNode entry, String body, String path) {
+        BodyCapture capture = captureBody(redactBody(body, path));
         entry.put("body", capture.body());
         entry.put("truncated", capture.truncated());
+    }
+
+    private static String redactBody(String body, String path) {
+        if (body == null || body.isBlank()) {
+            return body;
+        }
+        try {
+            JsonNode root = Json.MAPPER.readTree(body);
+            redactJson(root);
+            return Json.MAPPER.writeValueAsString(root);
+        } catch (Exception error) {
+            return isOAuthPath(path) ? REDACTED : body;
+        }
+    }
+
+    private static void redactJson(JsonNode node) {
+        if (node == null) {
+            return;
+        }
+        if (node.isObject()) {
+            ObjectNode object = (ObjectNode) node;
+            if ("redacted_thinking".equals(object.path("type").asText())
+                    && object.has("data")) {
+                object.put("data", REDACTED);
+            }
+            object.properties().forEach(entry -> {
+                if (SENSITIVE_JSON_FIELDS.contains(entry.getKey().toLowerCase(Locale.ROOT))) {
+                    object.put(entry.getKey(), REDACTED);
+                } else {
+                    redactJson(entry.getValue());
+                }
+            });
+        } else if (node.isArray()) {
+            node.forEach(RequestLogger::redactJson);
+        }
+    }
+
+    private static boolean isOAuthPath(String path) {
+        if (path == null) {
+            return false;
+        }
+        String normalized = path.toLowerCase(Locale.ROOT);
+        return normalized.contains("/oauth/") || normalized.endsWith("/oauth")
+                || normalized.contains("oauth/token");
     }
 
     private static BodyCapture captureBody(String body) {

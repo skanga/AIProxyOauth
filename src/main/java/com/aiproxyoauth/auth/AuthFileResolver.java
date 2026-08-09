@@ -18,18 +18,12 @@ public final class AuthFileResolver {
 
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
 
-        String envHome = System.getenv("CHATGPT_LOCAL_HOME");
-        if (envHome != null && !envHome.isEmpty()) {
-            candidates.add(Path.of(envHome, AUTH_FILENAME).toString());
-        }
-
         String codexHome = System.getenv("CODEX_HOME");
         if (codexHome != null && !codexHome.isEmpty()) {
             candidates.add(Path.of(codexHome, AUTH_FILENAME).toString());
         }
 
         String userHome = System.getProperty("user.home");
-        candidates.add(Path.of(userHome, ".chatgpt-local", AUTH_FILENAME).toString());
         candidates.add(Path.of(userHome, ".codex", AUTH_FILENAME).toString());
 
         return new ArrayList<>(candidates);
@@ -39,13 +33,10 @@ public final class AuthFileResolver {
         if (preferred != null && !preferred.isEmpty()) {
             return preferred;
         }
-        String envHome = System.getenv("CHATGPT_LOCAL_HOME");
-        if (envHome == null || envHome.isEmpty()) {
-            envHome = System.getenv("CODEX_HOME");
-        }
+        String envHome = System.getenv("CODEX_HOME");
         if (envHome != null && !envHome.isEmpty()) {
             return Path.of(envHome, AUTH_FILENAME).toString();
         }
-        return Path.of(System.getProperty("user.home"), ".chatgpt-local", AUTH_FILENAME).toString();
+        return Path.of(System.getProperty("user.home"), ".codex", AUTH_FILENAME).toString();
     }
 }
