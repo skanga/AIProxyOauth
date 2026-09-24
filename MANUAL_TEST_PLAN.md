@@ -117,3 +117,47 @@ For `/v1/messages`, cover synchronous and streaming text, tool use/result, syste
 - `serve` failures are nonfatal; `doctor --inference` failures are nonzero.
 - README examples match `--help`.
 - No logs, output, fixtures, or artifacts contain credentials or PII.
+
+## 11. Test URLs
+
+```bash
+# Call the model list endpoint
+curl -X GET http://localhost:10531/v1/models \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+# Call the OpenAI Chat Completions endpoint 
+curl http://localhost:10531/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Hello! Give me a one-sentence greeting."}
+    ],
+    "temperature": 0.7
+  }'
+
+# Call the OpenAI Responses endpoint 
+curl http://localhost:10531/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "model": "gpt-4o",
+    "input": "Write a one-sentence bedtime story about a unicorn."
+  }'
+
+# Call the Anthropic Messages endpoint 
+curl http://localhost:10531/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-sonnet-5",
+    "system": "You are an expert programmer.",
+    "messages": [
+      {"role": "user", "content": "Explain what a REST API is in one short sentence."}
+    ],
+    "max_tokens": 1024
+  }'
+```
