@@ -6,21 +6,21 @@ AIProxyOauth is a Java 21 OAuth proxy exposing OpenAI-compatible and Anthropic-c
 
 ```bash
 mvn clean package
-java -jar target/AIProxyOauth-3.0.1.jar
+java -jar target/AIProxyOauth-3.0.2.jar
 ```
 
 With no arguments, the proxy starts on `127.0.0.1:10531`, enables every provider with usable credentials, uses the provider order Copilot, Codex, Anthropic, and performs one minimal inference check per enabled provider. Exact model matches take priority; collisions require qualification unless failover is enabled. `serve` is optional:
 
 ```bash
-java -jar target/AIProxyOauth-3.0.1.jar serve --startup-check off
+java -jar target/AIProxyOauth-3.0.2.jar serve --startup-check off
 ```
 
 Codex credentials are discovered through `CODEX_HOME/auth.json` and `~/.codex/auth.json`. Anthropic credentials can be created and inspected with:
 
 ```bash
-java -jar target/AIProxyOauth-3.0.1.jar auth anthropic login
-java -jar target/AIProxyOauth-3.0.1.jar auth status
-java -jar target/AIProxyOauth-3.0.1.jar auth anthropic logout
+java -jar target/AIProxyOauth-3.0.2.jar auth anthropic login
+java -jar target/AIProxyOauth-3.0.2.jar auth status
+java -jar target/AIProxyOauth-3.0.2.jar auth anthropic logout
 ```
 
 `CLAUDE_CODE_OAUTH_TOKEN` remains supported for Claude Code interoperability.
@@ -30,14 +30,16 @@ java -jar target/AIProxyOauth-3.0.1.jar auth anthropic logout
 ### GitHub Copilot
 
 ```bash
-java -jar target/AIProxyOauth-3.0.1.jar auth copilot login
-java -jar target/AIProxyOauth-3.0.1.jar serve --provider copilot
-java -jar target/AIProxyOauth-3.0.1.jar auth copilot logout
+java -jar target/AIProxyOauth-3.0.2.jar auth copilot login
+java -jar target/AIProxyOauth-3.0.2.jar serve --provider copilot
+java -jar target/AIProxyOauth-3.0.2.jar auth copilot logout
 ```
 
 Login uses GitHub device authorization with no repository scope. Credentials are stored in the proxy's `copilot-auth.json`, alongside its Anthropic credential file, with owner-only permissions. Logout removes only that managed login. Expired credentials require login again; explicitly supplied token files are reread so their owner can rotate them.
 
 Alternatively set `AIPROXY_COPILOT_TOKEN`, or pass `--copilot-token-file PATH`. An explicit file may contain a raw token, a proxy-managed credential document, or a read-only Copilot CLI JSONC config. File credentials take precedence over the environment token, then the managed login. Invalid explicit credentials never fall back to another source. The proxy does not search other applications' credential stores.
+
+> **Copilot model access depends on the OAuth app.** GitHub ties each Copilot token to an "integrator" (determined by the `oauth_client_id` it was minted under), and the integrator decides which models the token may call for chat. The proxy defaults to the ecosystem-standard Copilot device-flow client id (`Iv1.b507a08c87ecfe98`), which exposes the full model catalog. If you see a small allow-list or a startup "model not available for integrator" error, your token was minted under a more restrictive app — set `AIPROXY_COPILOT_OAUTH_CLIENT_ID` (or `copilot.oauth_client_id`) and run `auth copilot login` again to re-mint it.
 
 Select models returned by `/v1/models`, such as `copilot/gpt-4o-mini` **only if your account lists it**. Copilot model lists restrict discovery; they cannot add unavailable models. Catalogs are fresh for five minutes and may be reused during an outage for up to one hour from the last successful fetch. There is no built-in Copilot model fallback.
 
@@ -170,7 +172,7 @@ codex:
 copilot:
   github_host: github.com
   oauth_file: ~/.aiproxy/copilot-auth.json
-  oauth_client_id: 01ab8ac9400c4e429b23
+  oauth_client_id: Iv1.b507a08c87ecfe98
   token_file: null
   models: []
 
@@ -265,7 +267,7 @@ Inference failures are nonfatal for `serve`: warnings are grouped at the end and
 Generate keys with:
 
 ```bash
-java -jar target/AIProxyOauth-3.0.1.jar key generate cursor
+java -jar target/AIProxyOauth-3.0.2.jar key generate cursor
 ```
 
 A keys file contains one `name:key` or bare `key` per line. The admin key is stored in a separate file. `/health` remains unauthenticated; protected OpenAI-compatible endpoints accept `Authorization: Bearer <proxy-key>`, and Anthropic-compatible endpoints also accept `x-api-key`.

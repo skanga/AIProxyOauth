@@ -83,7 +83,7 @@ public final class EffectiveConfigLoader {
                 environment.get("AIPROXY_COPILOT_TOKEN_FILE"), yaml, null, yamlBase, sources);
         requireReadable(copilotTokenFile, "copilot.token_file");
         String copilotClientId = choose("copilot.oauth_client_id", cli.copilotOauthClientId,
-                environment.get("AIPROXY_COPILOT_OAUTH_CLIENT_ID"), yaml, "01ab8ac9400c4e429b23", sources);
+                environment.get("AIPROXY_COPILOT_OAUTH_CLIENT_ID"), yaml, "Iv1.b507a08c87ecfe98", sources);
         List<String> copilotModels = list("copilot.models", cli.copilotModels,
                 environment.get("AIPROXY_COPILOT_MODELS"), yaml, sources);
 

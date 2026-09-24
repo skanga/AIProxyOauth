@@ -32,7 +32,7 @@ public final class StartupRenderer {
     public static String render(EffectiveConfig config, Map<ProviderId, ProviderStatus> providerStatuses) {
         StringBuilder output = new StringBuilder();
         List<String> warnings = new ArrayList<>();
-        output.append("AIProxyOauth 3.0.1 started\n\n");
+        output.append("AIProxyOauth 3.0.2 started\n\n");
         output.append("Server\n");
         output.append("  Listening:       http://").append(config.server().host()).append(':').append(config.server().port()).append('\n');
         output.append("  Network access:  ").append(local(config.server().host()) ? "local only" : "network accessible").append('\n');

@@ -1,41 +1,26 @@
-AIProxyOauth 3.0.1
+AIProxyOauth 3.0.2
 ==================
 
-Patch release. Correctness and diagnostics fixes on top of 3.0.0; no CLI,
-configuration, or wire-format changes.
+Patch release. Fixes the default GitHub Copilot OAuth app so new logins get
+the full model catalog. No wire-format changes.
 
-Provider error/id clarity:
-- Proxy-generated request ids are now prefixed `aiproxy_` so a proxy-origin
-  id or error is never mistaken for one relayed from an upstream provider
-  (upstream providers use `req_...`).
-- Expired/unrefreshable Anthropic credentials now return a clear
-  `401 authentication_error` telling the user to run `auth anthropic login`,
-  across all Anthropic paths (/v1/messages, /v1/chat/completions,
-  /v1/responses, /v1/models). Previously these were masked as
-  `502 "Anthropic is temporarily unavailable"` or a generic 500.
-- Copilot now surfaces the upstream error body (bounded) instead of only an
-  HTTP status, matching Codex and Anthropic.
-
-Startup check:
-- Diagnostics are no longer truncated (no ellipsis); long messages wrap.
-- The Anthropic inference probe no longer false-negatives when the model
-  returns a well-formed 200 with empty content (a valid round-trip).
-- The chat probe falls back through discovered models until one is usable,
-  so a catalog model the credential cannot chat with (e.g. a Copilot model
-  restricted to another integrator) no longer fails the whole provider.
-
-Other:
-- Failover propagates the real upstream error on the terminal attempt.
-- Bare SSE `error` events surface their top-level message.
-- Copilot remembers `incomplete` (not only `completed`) responses for replay.
-- Removed dead Routing*Handler classes and the unused --verbose flag.
-- Unified replay/state namespacing via a shared helper.
-- Documented the intentional Codex auth asymmetry (no native login).
+Copilot default OAuth app:
+- `copilot.oauth_client_id` now defaults to `Iv1.b507a08c87ecfe98` (the
+  ecosystem-standard Copilot device-flow app), which exposes the full Copilot
+  model catalog. The previous default (`01ab8ac9400c4e429b23`) minted tokens
+  under a restrictive integrator that only allowed a handful of models and
+  failed the Copilot startup inference check.
+- GitHub ties Copilot model access to the token's OAuth app ("integrator");
+  see README. Existing tokens keep working until the next `auth copilot login`;
+  re-login to adopt the new default. Override with
+  `AIPROXY_COPILOT_OAUTH_CLIENT_ID` / `copilot.oauth_client_id` as before.
 
 Verification commands:
   mvn clean package
-  java -jar target/AIProxyOauth-3.0.1.jar --version
-  java -jar target/AIProxyOauth-3.0.1.jar auth status
+  java -jar target/AIProxyOauth-3.0.2.jar --version
+  java -jar target/AIProxyOauth-3.0.2.jar auth copilot logout
+  java -jar target/AIProxyOauth-3.0.2.jar auth copilot login
+  java -jar target/AIProxyOauth-3.0.2.jar serve --provider copilot
 
-Run packaged artifact checks on Windows and Linux. See MANUAL_TEST_PLAN.md
-for remaining account-specific checks.
+Confirm the Copilot startup banner lists the full model catalog and reports
+Check: OK. See MANUAL_TEST_PLAN.md for remaining account-specific checks.
