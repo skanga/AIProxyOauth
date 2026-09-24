@@ -1,6 +1,6 @@
 # AIProxyOauth 3.0 example configuration
 # Run with:
-#   java -jar target/AIProxyOauth-3.0.0.jar serve --config aiproxy.example.yaml
+#   java -jar target/AIProxyOauth-3.0.1.jar serve --config aiproxy.example.yaml
 #
 # Relative paths are resolved from this file's directory. Client and admin keys
 # must be supplied through key files or AIPROXY_CLIENT_KEYS /

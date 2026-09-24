@@ -42,8 +42,10 @@ public final class RequestLogger {
         this.logDir = logDir;
     }
 
+    // Proxy-origin prefix, deliberately distinct from upstream providers' "req_..." ids so a
+    // proxy-generated id/error is never mistaken for one relayed from an upstream provider.
     public String nextRequestId() {
-        return "req_" + UUID.randomUUID().toString().replace("-", "");
+        return "aiproxy_" + UUID.randomUUID().toString().replace("-", "");
     }
 
     public void logInbound(String requestId, Context ctx, String body) {

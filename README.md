@@ -6,21 +6,21 @@ AIProxyOauth is a Java 21 OAuth proxy exposing OpenAI-compatible and Anthropic-c
 
 ```bash
 mvn clean package
-java -jar target/AIProxyOauth-3.0.0.jar
+java -jar target/AIProxyOauth-3.0.1.jar
 ```
 
 With no arguments, the proxy starts on `127.0.0.1:10531`, enables every provider with usable credentials, uses the provider order Copilot, Codex, Anthropic, and performs one minimal inference check per enabled provider. Exact model matches take priority; collisions require qualification unless failover is enabled. `serve` is optional:
 
 ```bash
-java -jar target/AIProxyOauth-3.0.0.jar serve --startup-check off
+java -jar target/AIProxyOauth-3.0.1.jar serve --startup-check off
 ```
 
 Codex credentials are discovered through `CODEX_HOME/auth.json` and `~/.codex/auth.json`. Anthropic credentials can be created and inspected with:
 
 ```bash
-java -jar target/AIProxyOauth-3.0.0.jar auth anthropic login
-java -jar target/AIProxyOauth-3.0.0.jar auth status
-java -jar target/AIProxyOauth-3.0.0.jar auth anthropic logout
+java -jar target/AIProxyOauth-3.0.1.jar auth anthropic login
+java -jar target/AIProxyOauth-3.0.1.jar auth status
+java -jar target/AIProxyOauth-3.0.1.jar auth anthropic logout
 ```
 
 `CLAUDE_CODE_OAUTH_TOKEN` remains supported for Claude Code interoperability.
@@ -30,9 +30,9 @@ java -jar target/AIProxyOauth-3.0.0.jar auth anthropic logout
 ### GitHub Copilot
 
 ```bash
-java -jar target/AIProxyOauth-3.0.0.jar auth copilot login
-java -jar target/AIProxyOauth-3.0.0.jar serve --provider copilot
-java -jar target/AIProxyOauth-3.0.0.jar auth copilot logout
+java -jar target/AIProxyOauth-3.0.1.jar auth copilot login
+java -jar target/AIProxyOauth-3.0.1.jar serve --provider copilot
+java -jar target/AIProxyOauth-3.0.1.jar auth copilot logout
 ```
 
 Login uses GitHub device authorization with no repository scope. Credentials are stored in the proxy's `copilot-auth.json`, alongside its Anthropic credential file, with owner-only permissions. Logout removes only that managed login. Expired credentials require login again; explicitly supplied token files are reread so their owner can rotate them.
@@ -265,7 +265,7 @@ Inference failures are nonfatal for `serve`: warnings are grouped at the end and
 Generate keys with:
 
 ```bash
-java -jar target/AIProxyOauth-3.0.0.jar key generate cursor
+java -jar target/AIProxyOauth-3.0.1.jar key generate cursor
 ```
 
 A keys file contains one `name:key` or bare `key` per line. The admin key is stored in a separate file. `/health` remains unauthenticated; protected OpenAI-compatible endpoints accept `Authorization: Bearer <proxy-key>`, and Anthropic-compatible endpoints also accept `x-api-key`.

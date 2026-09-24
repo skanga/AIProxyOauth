@@ -46,7 +46,7 @@ class AIProxyOauthTest {
         
         int exitCode = cmd.execute("--version");
         assertEquals(0, exitCode);
-        assertTrue(sw.toString().contains("AIProxyOauth 3.0.0"));
+        assertTrue(sw.toString().contains("AIProxyOauth 3.0.1"));
     }
 
     @Test
@@ -278,6 +278,34 @@ class AIProxyOauthTest {
     }
 
     @Test
+    void anthropicStartupProbeTreatsWellFormedEmptyContentAsSuccess() throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/messages", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] response = """
+                    {"id":"msg_x","type":"message","role":"assistant","content":[],"stop_reason":"max_tokens"}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            ServerConfig config = new ServerConfig("127.0.0.1", server.getAddress().getPort(), null,
+                    null, "http://base", null, null, null, "", false, Map.of(), null);
+
+            AIProxyOauth.StartupProbeResult result = app.verifyAnthropicThroughProxy(
+                    config, List.of("claude-sonnet-test"), "sk-proxy-test", client);
+
+            assertTrue(result.success(), result.message());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void anthropicStartupProbeUsesNativeMessagesEndpoint() throws Exception {
         AIProxyOauth app = new AIProxyOauth();
         AtomicReference<String> path = new AtomicReference<>();
@@ -346,6 +374,45 @@ class AIProxyOauthTest {
             assertTrue(result.success(), result.message());
             assertEquals("claude-sonnet-5", result.model());
             assertTrue(body.get().contains("\"model\":\"claude-sonnet-5\""), body.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void startupProbeFallsBackToNextModelWhenFirstIsNotUsable() throws Exception {
+        AIProxyOauth app = new AIProxyOauth();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            String req = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            if (req.contains("\"model\":\"copilot/allowed\"")) {
+                byte[] ok = """
+                        data: {"choices":[{"delta":{"content":"ready"}}]}
+
+                        data: [DONE]
+
+                        """.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+                exchange.sendResponseHeaders(200, ok.length);
+                exchange.getResponseBody().write(ok);
+            } else {
+                byte[] bad = "{\"error\":{\"message\":\"model not available for integrator\"}}"
+                        .getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(400, bad.length);
+                exchange.getResponseBody().write(bad);
+            }
+            exchange.close();
+        });
+        server.start();
+        try (HttpClient httpClient = HttpClient.newHttpClient()) {
+            ServerConfig config = new ServerConfig("127.0.0.1", server.getAddress().getPort(), null,
+                    null, "http://base", null, null, null, "", false, Map.of(), null);
+
+            AIProxyOauth.StartupProbeResult result = app.verifyChatCompletionThroughProxy(
+                    config, List.of("copilot/denied", "copilot/allowed"), null, httpClient);
+
+            assertTrue(result.success(), result.message());
+            assertEquals("copilot/allowed", result.model());
         } finally {
             server.stop(0);
         }

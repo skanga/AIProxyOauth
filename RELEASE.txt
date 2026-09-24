@@ -1,36 +1,41 @@
-AIProxyOauth 3.0.0
-=================
+AIProxyOauth 3.0.1
+==================
 
-Adds GitHub Copilot as a direct HTTP provider alongside Codex and Anthropic.
-Includes device login/logout, explicit file/environment credentials, account model
-discovery, capability validation, both OpenAI client APIs, streaming, tools, usage,
-and bounded client/account-isolated Responses replay.
+Patch release. Correctness and diagnostics fixes on top of 3.0.0; no CLI,
+configuration, or wire-format changes.
 
-Migration:
-- auto includes credentialed Copilot; default order is copilot,codex,anthropic.
-- both still means codex,anthropic; all requires all three providers.
-- --provider-order ranks providers without enabling them.
-- --default-provider must be enabled and takes precedence when eligible.
-- --failover is opt-in, exact-model only, and stops before committed responses.
-- Copilot model IDs are listed as copilot/<raw-id>.
-- Startup always lists every known model, grouped in configured provider order.
-- /v1/messages remains Anthropic-only.
+Provider error/id clarity:
+- Proxy-generated request ids are now prefixed `aiproxy_` so a proxy-origin
+  id or error is never mistaken for one relayed from an upstream provider
+  (upstream providers use `req_...`).
+- Expired/unrefreshable Anthropic credentials now return a clear
+  `401 authentication_error` telling the user to run `auth anthropic login`,
+  across all Anthropic paths (/v1/messages, /v1/chat/completions,
+  /v1/responses, /v1/models). Previously these were masked as
+  `502 "Anthropic is temporarily unavailable"` or a generic 500.
+- Copilot now surfaces the upstream error body (bounded) instead of only an
+  HTTP status, matching Codex and Anthropic.
 
-GitHub.com device login and the Chat upstream protocol are live-validated. Both
-OpenAI client APIs passed live streaming, synchronous, tools, and replay checks.
-The Responses and Messages upstream protocols are offline-tested across both
-client APIs. Broader live account/model coverage remains to be recorded.
+Startup check:
+- Diagnostics are no longer truncated (no ellipsis); long messages wrap.
+- The Anthropic inference probe no longer false-negatives when the model
+  returns a well-formed 200 with empty content (a valid round-trip).
+- The chat probe falls back through discovered models until one is usable,
+  so a catalog model the credential cannot chat with (e.g. a Copilot model
+  restricted to another integrator) no longer fails the whole provider.
 
-GitHub Enterprise Cloud support is live-unverified. Per user instruction,
-enterprise validation is optional and is not an implementation or release gate.
-Offline host isolation remains required. GitHub Enterprise Server is unsupported.
+Other:
+- Failover propagates the real upstream error on the terminal attempt.
+- Bare SSE `error` events surface their top-level message.
+- Copilot remembers `incomplete` (not only `completed`) responses for replay.
+- Removed dead Routing*Handler classes and the unused --verbose flag.
+- Unified replay/state namespacing via a shared helper.
+- Documented the intentional Codex auth asymmetry (no native login).
 
 Verification commands:
   mvn clean package
-  python -m unittest scripts/test_copilot_contract.py scripts/test_live_compatibility.py
-  java -jar target/AIProxyOauth-3.0.0.jar --version
-  python scripts/live-compatibility.py --provider copilot --model <discovered-id>
+  java -jar target/AIProxyOauth-3.0.1.jar --version
+  java -jar target/AIProxyOauth-3.0.1.jar auth status
 
-Run packaged artifact checks on Windows and Linux. See MANUAL_TEST_PLAN.md for
-remaining account-specific checks. This workspace prepares the release; it does
-not create a tag, push commits, or publish an artifact.
+Run packaged artifact checks on Windows and Linux. See MANUAL_TEST_PLAN.md
+for remaining account-specific checks.

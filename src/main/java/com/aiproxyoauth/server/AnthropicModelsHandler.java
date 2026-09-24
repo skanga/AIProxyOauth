@@ -5,6 +5,7 @@ import com.aiproxyoauth.provider.ProviderId;
 import com.aiproxyoauth.provider.anthropic.AnthropicCompatibilityProfile;
 import com.aiproxyoauth.provider.anthropic.AnthropicHttpClient;
 import com.aiproxyoauth.provider.anthropic.AnthropicRequestOptions;
+import com.aiproxyoauth.provider.anthropic.auth.AnthropicAuthException;
 import com.aiproxyoauth.transport.BoundedBodyReader;
 import io.javalin.http.Context;
 import io.javalin.http.Handler;
@@ -66,6 +67,11 @@ public final class AnthropicModelsHandler implements Handler {
         HttpResponse<java.io.InputStream> upstream;
         try {
             upstream = client.request(uri, "GET", null, options);
+        } catch (AnthropicAuthException error) {
+            // Proxy-side credential problem, not an upstream outage: report it as such.
+            AnthropicMessagesHandler.writeError(
+                    context, 401, "authentication_error", error.userMessage());
+            return;
         } catch (IOException error) {
             AnthropicMessagesHandler.writeError(
                     context, 502, "api_error", "Anthropic is temporarily unavailable");

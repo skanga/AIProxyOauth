@@ -11,6 +11,7 @@ import com.aiproxyoauth.provider.anthropic.AnthropicNativeRequest;
 import com.aiproxyoauth.provider.anthropic.AnthropicRequestOptions;
 import com.aiproxyoauth.provider.anthropic.AnthropicTranslationException;
 import com.aiproxyoauth.provider.anthropic.AnthropicUsageObserver;
+import com.aiproxyoauth.provider.anthropic.auth.AnthropicAuthException;
 import com.aiproxyoauth.usage.UsageTracker;
 import com.aiproxyoauth.util.Json;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -131,6 +132,10 @@ public final class AnthropicMessagesHandler implements Handler {
             upstream = client.request(
                     profile.messagesUri(), "POST",
                     Json.MAPPER.writeValueAsString(prepared.body()), options);
+        } catch (AnthropicAuthException error) {
+            // Proxy-side credential problem, not an upstream outage: report it as such.
+            writeError(context, 401, "authentication_error", error.userMessage());
+            return;
         } catch (IOException error) {
             writeError(context, 502, "api_error", "Anthropic is temporarily unavailable");
             return;

@@ -9,6 +9,7 @@ import com.aiproxyoauth.provider.anthropic.AnthropicHttpClient;
 import com.aiproxyoauth.provider.anthropic.AnthropicStreamDecoder;
 import com.aiproxyoauth.provider.anthropic.AnthropicTranslationException;
 import com.aiproxyoauth.provider.anthropic.AnthropicWire;
+import com.aiproxyoauth.provider.anthropic.auth.AnthropicAuthException;
 import com.aiproxyoauth.provider.chat.ChatRequest;
 import com.aiproxyoauth.provider.stream.CompletionEvent;
 import com.aiproxyoauth.state.ResponsesState;
@@ -122,8 +123,16 @@ public final class AnthropicResponsesBackend implements ResponsesBackend {
         }
 
         AccessLogFields.mode(context, request.stream() ? "stream" : "sync");
-        HttpResponse<InputStream> upstream = client.request(
-                wire.uri(), "POST", wire.body(), Map.of("Content-Type", "application/json"));
+        HttpResponse<InputStream> upstream;
+        try {
+            upstream = client.request(
+                    wire.uri(), "POST", wire.body(), Map.of("Content-Type", "application/json"));
+        } catch (AnthropicAuthException error) {
+            // Proxy-side credential problem, not an upstream outage: report it as such.
+            JsonHelper.toErrorResponse(context, error.userMessage(), 401,
+                    "authentication_error", null, "authentication_error");
+            return;
+        }
         AccessLogFields.upstreamStatus(context, upstream.statusCode());
         try (InputStream input = upstream.body()) {
             if (upstream.statusCode() < 200 || upstream.statusCode() >= 300) {

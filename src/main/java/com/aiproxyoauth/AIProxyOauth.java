@@ -65,7 +65,7 @@ import java.util.function.Supplier;
         name = "aiproxy",
         description = "OAuth proxy exposing OpenAI-compatible and Anthropic-compatible APIs.",
         mixinStandardHelpOptions = true,
-        version = "AIProxyOauth 3.0.0",
+        version = "AIProxyOauth 3.0.1",
         subcommands = {
                 AIProxyOauth.ServeCommand.class,
                 AIProxyOauth.AuthCommand.class,
@@ -459,13 +459,50 @@ public class AIProxyOauth implements Callable<Integer> {
 
     record StartupProbeResult(boolean success, int statusCode, String message, String responseText, String model) {}
 
+    private static final int STARTUP_PROBE_MAX_MODELS = 6;
+
     StartupProbeResult verifyChatCompletionThroughProxy(
             ServerConfig config,
             List<String> availableModels,
             String apiKey,
             HttpClient httpClient
     ) {
-        String model = selectStartupProbeModel(config, availableModels);
+        // Probe the preferred model first, then fall back through other discovered models until one
+        // succeeds. A catalog can list models the caller's credential cannot use for chat (e.g.
+        // Copilot models restricted to a different integrator), which would otherwise fail the whole
+        // provider on an unlucky first pick. Capped so a fully broken provider does not fan out to
+        // every model.
+        List<String> candidates = startupProbeModelCandidates(config, availableModels);
+        StartupProbeResult firstFailure = null;
+        for (String model : candidates) {
+            StartupProbeResult result = probeChatModel(config, model, apiKey, httpClient);
+            if (result.success()) {
+                return result;
+            }
+            if (firstFailure == null) {
+                firstFailure = result;
+            }
+        }
+        return firstFailure != null ? firstFailure
+                : new StartupProbeResult(false, 0, "No models available to probe", null,
+                        selectStartupProbeModel(config, availableModels));
+    }
+
+    private List<String> startupProbeModelCandidates(ServerConfig config, List<String> availableModels) {
+        java.util.LinkedHashSet<String> ordered = new java.util.LinkedHashSet<>();
+        ordered.add(selectStartupProbeModel(config, availableModels));
+        if (availableModels != null) {
+            ordered.addAll(availableModels);
+        }
+        return ordered.stream().limit(STARTUP_PROBE_MAX_MODELS).toList();
+    }
+
+    private StartupProbeResult probeChatModel(
+            ServerConfig config,
+            String model,
+            String apiKey,
+            HttpClient httpClient
+    ) {
         String body = """
                 {"model":"%s","messages":[{"role":"user","content":"Hello!"}],"stream":true}
                 """.formatted(model);
@@ -701,7 +738,7 @@ public class AIProxyOauth implements Callable<Integer> {
         try {
             body = Json.MAPPER.writeValueAsString(Map.of(
                     "model", model,
-                    "max_tokens", 1,
+                    "max_tokens", 16,
                     "messages", List.of(Map.of("role", "user", "content", "Reply OK"))));
         } catch (Exception error) {
             return new StartupProbeResult(false, 0, error.getMessage(), null, model);
@@ -719,12 +756,17 @@ public class AIProxyOauth implements Callable<Integer> {
             String responseText = formatStartupProbeRawBody(response.body());
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 JsonNode root = Json.MAPPER.readTree(response.body());
+                // A well-formed 200 message proves the inference round-trip works even when the
+                // content is empty (e.g. a low max_tokens response that stops before emitting text).
+                boolean wellFormed = "message".equals(root.path("type").asText())
+                        || "assistant".equals(root.path("role").asText());
                 String text = root.path("content").isArray() && !root.path("content").isEmpty()
                         ? root.path("content").get(0).path("text").asText("") : "";
-                boolean success = !text.isBlank();
-                return new StartupProbeResult(success, response.statusCode(),
-                        success ? "HTTP " + response.statusCode() : "HTTP " + response.statusCode() + ", no model response text",
-                        success ? formatStartupProbeText(text) : responseText, model);
+                String detail = !text.isBlank() ? formatStartupProbeText(text)
+                        : wellFormed ? "stop_reason=" + root.path("stop_reason").asText("unknown") : responseText;
+                return new StartupProbeResult(wellFormed, response.statusCode(),
+                        wellFormed ? "HTTP " + response.statusCode() : "HTTP " + response.statusCode() + ", unexpected response shape",
+                        detail, model);
             }
             return new StartupProbeResult(false, response.statusCode(), "HTTP " + response.statusCode(), responseText, model);
         } catch (Exception error) {

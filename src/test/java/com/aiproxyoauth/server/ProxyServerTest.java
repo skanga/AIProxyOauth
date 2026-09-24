@@ -400,7 +400,7 @@ class ProxyServerTest {
 
         String log = captured.toString(StandardCharsets.UTF_8);
         assertTrue(log.contains("GET /health 200"), log);
-        assertTrue(log.matches("(?s).*id=req_[0-9a-f]{32}.*"), log);
+        assertTrue(log.matches("(?s).*id=aiproxy_[0-9a-f]{32}.*"), log);
         assertTrue(log.contains("mode=internal"), log);
         assertTrue(log.contains("req_bytes=0"), log);
         assertTrue(log.contains("status=200"), log);

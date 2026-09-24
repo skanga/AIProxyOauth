@@ -10,7 +10,6 @@ import java.util.Map;
 
 /** The single startup display. It accepts already-redacted status metadata, never credentials. */
 public final class StartupRenderer {
-    private static final int MAX_DIAGNOSTIC_LENGTH = 180;
 
     private StartupRenderer() {}
 
@@ -33,7 +32,7 @@ public final class StartupRenderer {
     public static String render(EffectiveConfig config, Map<ProviderId, ProviderStatus> providerStatuses) {
         StringBuilder output = new StringBuilder();
         List<String> warnings = new ArrayList<>();
-        output.append("AIProxyOauth 3.0.0 started\n\n");
+        output.append("AIProxyOauth 3.0.1 started\n\n");
         output.append("Server\n");
         output.append("  Listening:       http://").append(config.server().host()).append(':').append(config.server().port()).append('\n');
         output.append("  Network access:  ").append(local(config.server().host()) ? "local only" : "network accessible").append('\n');
@@ -105,13 +104,12 @@ public final class StartupRenderer {
 
     static String safe(String text) {
         if (text == null || text.isBlank()) return "unknown";
-        String value = text.replaceAll("(?i)bearer\\s+[^\\s,;]+", "Bearer <redacted>")
+        // No truncation: diagnostics print in full and may wrap onto the next line.
+        return text.replaceAll("(?i)bearer\\s+[^\\s,;]+", "Bearer <redacted>")
                 .replaceAll("(?i)(token|secret|api[_ -]?key)\\s*[=:]\\s*[^\\s,;]+", "$1=<redacted>")
                 .replaceAll("sk-proxy-[A-Za-z0-9_-]+", "<redacted>")
                 .replaceAll("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "<redacted-email>")
                 .replaceAll("[\\p{Cntrl}&&[^\\t]]", " ")
                 .replaceAll("\\s+", " ").strip();
-        if (value.length() > MAX_DIAGNOSTIC_LENGTH) value = value.substring(0, MAX_DIAGNOSTIC_LENGTH - 1) + "…";
-        return value;
     }
 }

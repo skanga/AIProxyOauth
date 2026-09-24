@@ -7,6 +7,7 @@ import com.aiproxyoauth.provider.ProviderModel;
 import com.aiproxyoauth.provider.anthropic.AnthropicCompatibilityProfile;
 import com.aiproxyoauth.provider.anthropic.AnthropicHttpClient;
 import com.aiproxyoauth.provider.anthropic.AnthropicRequestOptions;
+import com.aiproxyoauth.provider.anthropic.auth.AnthropicAuthException;
 import com.aiproxyoauth.usage.UsageTracker;
 import com.aiproxyoauth.util.Json;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -135,6 +136,25 @@ class AnthropicMessagesHandlerTest {
         assertEquals("error", error.path("type").asText());
         assertEquals("api_error", error.path("error").path("type").asText());
         assertFalse(response.body().contains("offline"));
+    }
+
+    @Test
+    void mapsExpiredCredentialToAuthenticationErrorNotOutage() throws Exception {
+        Fixture fixture = serve("{}", 200, "application/json", new UsageTracker());
+        when(fixture.client().request(any(URI.class), eq("POST"), anyString(),
+                any(AnthropicRequestOptions.class)))
+                .thenThrow(new AnthropicAuthException(
+                        AnthropicAuthException.Kind.REFRESH_FAILED,
+                        "Anthropic OAuth token refresh failed"));
+
+        HttpResponse<String> response = post(false, "2023-06-01", null);
+
+        assertEquals(401, response.statusCode());
+        JsonNode error = Json.MAPPER.readTree(response.body());
+        assertEquals("error", error.path("type").asText());
+        assertEquals("authentication_error", error.path("error").path("type").asText());
+        assertFalse(response.body().contains("temporarily unavailable"));
+        assertTrue(response.body().contains("auth anthropic login"));
     }
 
     @SuppressWarnings("unchecked")

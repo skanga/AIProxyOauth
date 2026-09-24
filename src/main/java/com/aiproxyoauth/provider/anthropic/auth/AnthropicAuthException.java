@@ -24,4 +24,12 @@ public final class AnthropicAuthException extends IOException {
     public Kind kind() {
         return kind;
     }
+
+    /** Proxy-origin, actionable message for clients: names the cause and the fix. */
+    public String userMessage() {
+        String detail = getMessage() == null || getMessage().isBlank()
+                ? "Anthropic OAuth credential is unavailable"
+                : getMessage();
+        return detail + ". Run `auth anthropic login` to re-authenticate.";
+    }
 }
