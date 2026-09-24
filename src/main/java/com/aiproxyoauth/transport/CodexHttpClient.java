@@ -10,6 +10,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -23,6 +24,7 @@ public class CodexHttpClient {
 
     public CodexHttpClient(ServerConfig config, AuthManager authManager) {
         this(config, HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(15))
                 .executor(Executors.newVirtualThreadPerTaskExecutor())
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build(), authManager);
@@ -50,7 +52,7 @@ public class CodexHttpClient {
                                              String promptCacheKey) throws Exception {
         String logRequestId = requestId != null ? requestId : requestLogger.nextRequestId();
         HttpRequest request = buildRequest(path, method, body, extraHeaders, promptCacheKey, logRequestId);
-        HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        HttpResponse<InputStream> response = InferenceTransport.send(httpClient, request);
         requestLogger.logUpstreamResponse(logRequestId, response.statusCode(), responseHeaders(response),
                 "[streaming body omitted]");
         return response;
@@ -74,6 +76,7 @@ public class CodexHttpClient {
         Map<String, String> loggedHeaders = new LinkedHashMap<>();
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .timeout(Duration.ofSeconds(120))
                 .uri(URI.create(targetUrl));
 
         for (Map.Entry<String, String> entry : authHeaders.entrySet()) {

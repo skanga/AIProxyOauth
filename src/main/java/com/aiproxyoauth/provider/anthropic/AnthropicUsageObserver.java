@@ -9,6 +9,8 @@ public final class AnthropicUsageObserver {
             new IncrementalSseFramer(IncrementalSseFramer.DEFAULT_MAX_EVENT_BYTES);
     private long inputTokens;
     private long outputTokens;
+    private long cacheCreationInputTokens;
+    private long cacheReadInputTokens;
 
     public void accept(byte[] bytes) {
         try {
@@ -25,13 +27,15 @@ public final class AnthropicUsageObserver {
                     ? event.path("message").path("usage") : event.path("usage");
             if (usage.has("input_tokens")) inputTokens = usage.path("input_tokens").asLong();
             if (usage.has("output_tokens")) outputTokens = usage.path("output_tokens").asLong();
+            if (usage.has("cache_creation_input_tokens")) cacheCreationInputTokens = usage.path("cache_creation_input_tokens").asLong();
+            if (usage.has("cache_read_input_tokens")) cacheReadInputTokens = usage.path("cache_read_input_tokens").asLong();
         } catch (Exception ignored) {
             // Usage is diagnostics only.
         }
     }
 
     public long inputTokens() {
-        return inputTokens;
+        return inputTokens + cacheCreationInputTokens + cacheReadInputTokens;
     }
 
     public long outputTokens() {

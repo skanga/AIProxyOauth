@@ -1,6 +1,6 @@
-# AIProxyOauth 2.0 example configuration
+# AIProxyOauth 3.0 example configuration
 # Run with:
-#   java -jar target/AIProxyOauth-2.0.0.jar serve --config aiproxy.example.yaml
+#   java -jar target/AIProxyOauth-3.0.0.jar serve --config aiproxy.example.yaml
 #
 # Relative paths are resolved from this file's directory. Client and admin keys
 # must be supplied through key files or AIPROXY_CLIENT_KEYS /
@@ -13,8 +13,10 @@ server:
 routing:
   # auto enables every provider for which usable credentials are found.
   provider: auto
-  # Used only for unqualified models on OpenAI-compatible endpoints.
-  default_provider: codex
+  provider_order: [copilot, codex, anthropic]
+  failover: false
+  # Optional preference; must name an enabled provider.
+  # default_provider: codex
 
 client_auth:
   # Uncomment after creating these files. Use one name:key or bare key per line
@@ -37,6 +39,15 @@ codex:
     mode: none
     file: null
     cache_dir: ./cache/codex-instructions
+
+copilot:
+  github_host: github.com
+  oauth_file: ~/.aiproxy/copilot-auth.json
+  oauth_client_id: 01ab8ac9400c4e429b23
+  # Explicit raw token or read-only Copilot CLI config; no automatic CLI discovery.
+  token_file: null
+  # Restricts discovered models; never fabricates unavailable models.
+  models: []
 
 anthropic:
   oauth_file: ~/.aiproxy/anthropic-auth.json

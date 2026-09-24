@@ -1,24 +1,36 @@
-AIProxyOauth 2.0.0 release notes and gate
-=========================================
+AIProxyOauth 3.0.0
+=================
 
-2.0.0 is an intentional breaking CLI and configuration release. It introduces explicit
-client-protocol versus upstream-provider terminology, the `serve`, `auth`, `key`,
-`config`, and `doctor` command tree, strict explicitly selected YAML configuration,
-provider-specific options, secret-only file/environment client authentication, three
-startup-check modes, and one redacted startup renderer.
+Adds GitHub Copilot as a direct HTTP provider alongside Codex and Anthropic.
+Includes device login/logout, explicit file/environment credentials, account model
+discovery, capability validation, both OpenAI client APIs, streaming, tools, usage,
+and bounded client/account-isolated Responses replay.
 
-Release gate:
+Migration:
+- auto includes credentialed Copilot; default order is copilot,codex,anthropic.
+- both still means codex,anthropic; all requires all three providers.
+- --provider-order ranks providers without enabling them.
+- --default-provider must be enabled and takes precedence when eligible.
+- --failover is opt-in, exact-model only, and stops before committed responses.
+- Copilot model IDs are listed as copilot/<raw-id>.
+- Startup always lists every known model, grouped in configured provider order.
+- /v1/messages remains Anthropic-only.
 
-1. `mvn test`
-2. `mvn clean package`
-3. `java -jar target/AIProxyOauth-2.0.0.jar --help`
-4. Complete `MANUAL_TEST_PLAN.md` on Windows and one Unix-like environment.
-5. Confirm `startup.check: off` sends no inference requests.
-6. Confirm dual-provider inference checks use `/v1/chat/completions` and `/v1/messages`.
-7. Confirm serve failures are nonfatal and `doctor --inference` failures are nonzero.
-8. Confirm output and protected request logs contain no OAuth tokens, proxy keys, or PII.
+GitHub.com device login and the Chat upstream protocol are live-validated. Both
+OpenAI client APIs passed live streaming, synchronous, tools, and replay checks.
+The Responses and Messages upstream protocols are offline-tested across both
+client APIs. Broader live account/model coverage remains to be recorded.
 
-Tag only after the gate passes:
+GitHub Enterprise Cloud support is live-unverified. Per user instruction,
+enterprise validation is optional and is not an implementation or release gate.
+Offline host isolation remains required. GitHub Enterprise Server is unsupported.
 
-  git tag v2.0.0
-  git push origin v2.0.0
+Verification commands:
+  mvn clean package
+  python -m unittest scripts/test_copilot_contract.py scripts/test_live_compatibility.py
+  java -jar target/AIProxyOauth-3.0.0.jar --version
+  python scripts/live-compatibility.py --provider copilot --model <discovered-id>
+
+Run packaged artifact checks on Windows and Linux. See MANUAL_TEST_PLAN.md for
+remaining account-specific checks. This workspace prepares the release; it does
+not create a tag, push commits, or publish an artifact.

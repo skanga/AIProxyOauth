@@ -38,7 +38,7 @@ public final class SseCollector {
                     continue;
                 }
 
-                // Only accept the response object from a response.completed event to avoid
+                // Only accept a successful terminal response (completed or incomplete) to avoid
                 // mistaking partial response objects in other event types for the final result.
                 String eventType = parsed.path("type").asText(event.event() != null ? event.event() : "");
                 if ("response.output_text.delta".equals(eventType)) {
@@ -77,7 +77,7 @@ public final class SseCollector {
                     continue;
                 }
 
-                if ("response.completed".equals(eventType)) {
+                if ("response.completed".equals(eventType) || "response.incomplete".equals(eventType)) {
                     JsonNode response = parsed.get("response");
                     if (response != null && response.isObject()) {
                         latestResponse = response;

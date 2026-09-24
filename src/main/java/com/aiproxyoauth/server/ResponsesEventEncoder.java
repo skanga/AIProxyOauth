@@ -3,6 +3,7 @@ package com.aiproxyoauth.server;
 import com.aiproxyoauth.provider.stream.BlockType;
 import com.aiproxyoauth.provider.stream.CompletionEvent;
 import com.aiproxyoauth.provider.stream.FinishReason;
+import com.aiproxyoauth.provider.ProviderError;
 import com.aiproxyoauth.util.Json;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -23,6 +24,7 @@ public final class ResponsesEventEncoder {
     private FinishReason finishReason;
     private long sequenceNumber;
     private boolean terminalEmitted;
+    private ProviderError failure;
 
     public ResponsesEventEncoder(String requestedModel) {
         this.requestedModel = Objects.requireNonNull(requestedModel, "requestedModel");
@@ -30,6 +32,13 @@ public final class ResponsesEventEncoder {
 
     public List<StreamEvent> accept(CompletionEvent event) {
         Objects.requireNonNull(event, "event");
+        if (terminalEmitted) return List.of();
+        if (event instanceof CompletionEvent.Error error) {
+            requireStarted();
+            failure = error.error();
+            terminalEmitted = true;
+            return List.of(responseEvent("response.failed", response()));
+        }
         if (event instanceof CompletionEvent.Started started) {
             if (id != null) return List.of();
             id = started.id().startsWith("resp_") ? started.id() : "resp_" + started.id();
@@ -68,10 +77,10 @@ public final class ResponsesEventEncoder {
     }
 
     public ObjectNode response() {
-        if (id == null || finishReason == null) {
+        if (id == null || (finishReason == null && failure == null)) {
             throw new IllegalStateException("Response is not terminal");
         }
-        return responseNode(finishReason == FinishReason.LENGTH ? "incomplete" : "completed");
+        return responseNode(failure != null ? "failed" : finishReason == FinishReason.LENGTH ? "incomplete" : "completed");
     }
 
     public CompletionEvent.UsageSnapshot usage() {
@@ -79,7 +88,7 @@ public final class ResponsesEventEncoder {
     }
 
     public boolean isFinished() {
-        return finishReason != null;
+        return finishReason != null || failure != null;
     }
 
     private List<StreamEvent> startBlock(CompletionEvent.BlockStarted started) {
@@ -187,6 +196,18 @@ public final class ResponsesEventEncoder {
         response.put("created_at", createdAt);
         response.put("status", status);
         response.put("model", requestedModel);
+        if (failure != null) {
+            String type = switch (failure.kind()) {
+                case INVALID_REQUEST -> "invalid_request_error";
+                case AUTHENTICATION -> "authentication_error";
+                case PERMISSION -> "permission_error";
+                case RATE_LIMIT -> "rate_limit_error";
+                default -> "upstream_error";
+            };
+            response.putObject("error").put("type", type)
+                    .put("code", failure.kind().name().toLowerCase(java.util.Locale.ROOT))
+                    .put("message", failure.message());
+        }
         ArrayNode output = response.putArray("output");
         blocks.values().forEach(block -> output.add(block.item(block.finished)));
         if ("incomplete".equals(status)) {

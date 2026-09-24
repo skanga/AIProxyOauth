@@ -14,17 +14,31 @@ public record EffectiveConfig(
         ClientAuth clientAuth,
         Codex codex,
         Anthropic anthropic,
+        Copilot copilot,
         Cors cors,
         Logging logging,
         Startup startup,
         Map<String, String> sources
 ) {
-    public enum ProviderSelection { AUTO, CODEX, ANTHROPIC, BOTH }
+    public enum ProviderSelection { AUTO, CODEX, ANTHROPIC, COPILOT, BOTH, ALL, CUSTOM }
     public enum StartupCheck { OFF, CREDENTIALS, INFERENCE }
     public enum InstructionsMode { NONE, FILE, LATEST }
 
     public record Server(String host, int port) {}
-    public record Routing(ProviderSelection provider, ProviderId defaultProvider) {}
+    public record Routing(ProviderSelection provider, ProviderId defaultProvider,
+                          List<ProviderId> selectedProviders, List<ProviderId> providerOrder, boolean failover) {
+        public Routing {
+            selectedProviders = List.copyOf(selectedProviders);
+            providerOrder = List.copyOf(providerOrder);
+        }
+        public String selection() {
+            return provider == ProviderSelection.AUTO ? null : selectedProviders.stream()
+                    .map(ProviderId::wireName).collect(java.util.stream.Collectors.joining(","));
+        }
+        public Routing withDefault(ProviderId value) {
+            return new Routing(provider, value, selectedProviders, providerOrder, failover);
+        }
+    }
     public record ClientAuth(Path keysFile, Path adminKeyFile, Map<String, String> environmentKeys,
                              String environmentAdminKey) {
         public ClientAuth {
@@ -44,11 +58,16 @@ public record EffectiveConfig(
     public record Anthropic(List<String> models, String baseUrl, Path oauthFile, String tokenUrl) {
         public Anthropic { models = List.copyOf(models); }
     }
+    public record Copilot(String githubHost, Path oauthFile, String oauthClientId,
+                          Path tokenFile, String environmentToken, List<String> models) {
+        public Copilot { models = List.copyOf(models); }
+        @Override public String toString() { return "Copilot[githubHost=" + githubHost + ", credentials=<redacted>]"; }
+    }
     public record Cors(List<String> origins, boolean allowAny) {
         public Cors { origins = List.copyOf(origins); }
     }
     public record Logging(boolean requests, Path directory) {}
-    public record Startup(StartupCheck check, boolean verbose) {}
+    public record Startup(StartupCheck check) {}
 
     public ServerConfig legacyServerConfig(Map<String, String> keys, String adminKey) {
         String instructions = "";

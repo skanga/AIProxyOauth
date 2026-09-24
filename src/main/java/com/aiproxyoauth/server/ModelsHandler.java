@@ -45,7 +45,7 @@ public class ModelsHandler implements Handler {
             List<ProviderModel> models = modelCatalog.resolveModels();
             List<Map<String, Object>> data = models.stream()
                     .map(model -> Map.<String, Object>of(
-                            "id", model.id(),
+                            "id", listedId(model, models),
                             "object", "model",
                             "created", 0,
                             "owned_by", owner(model.provider())
@@ -58,10 +58,18 @@ public class ModelsHandler implements Handler {
         }
     }
 
+    private static String listedId(ProviderModel model, List<ProviderModel> models) {
+        boolean ambiguous = models.stream().filter(candidate -> candidate.id().equals(model.id())
+                || candidate.aliases().contains(model.id())).count() > 1;
+        return model.provider() == ProviderId.COPILOT || ambiguous
+                ? model.provider().wireName() + "/" + model.id() : model.id();
+    }
+
     private static String owner(ProviderId provider) {
         return switch (provider) {
             case CODEX -> "codex-oauth";
             case ANTHROPIC -> "anthropic-oauth";
+            case COPILOT -> "copilot-oauth";
         };
     }
 }

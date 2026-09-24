@@ -52,7 +52,9 @@ public final class ResponsesRequestAdapter {
 
     private void adaptItem(JsonNode item, List<ChatRequest.Message> messages) {
         if (item == null || !item.isObject()) throw invalid("Every input item must be an object");
-        switch (item.path("type").asText()) {
+        String type = item.has("type") ? item.path("type").asText()
+                : item.has("role") ? "message" : "";
+        switch (type) {
             case "message" -> messages.add(adaptMessage(item));
             case "function_call" -> messages.add(message(
                     ChatRequest.Role.ASSISTANT,
@@ -127,6 +129,9 @@ public final class ResponsesRequestAdapter {
     }
 
     private ChatRequest.Reasoning adaptReasoning(JsonNode item) {
+        if (item.hasNonNull("encrypted_content")) {
+            throw invalid("encrypted_content cannot be represented by this provider's reasoning protocol");
+        }
         StringBuilder text = new StringBuilder();
         appendTextItems(text, item.get("summary"));
         appendTextItems(text, item.get("content"));

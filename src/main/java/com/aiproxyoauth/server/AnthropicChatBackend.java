@@ -90,6 +90,7 @@ public final class AnthropicChatBackend implements ChatBackend {
         AccessLogFields.upstreamStatus(context, upstream.statusCode());
         try (InputStream input = upstream.body()) {
             if (upstream.statusCode() < 200 || upstream.statusCode() >= 300) {
+                if (Boolean.TRUE.equals(context.attribute("providerFailoverAttempt"))) throw new UpstreamFailure(upstream.statusCode());
                 ProviderError error = AnthropicErrorParser.parse(
                         upstream.statusCode(), readBoundedError(input));
                 writeError(context, error);
@@ -153,8 +154,14 @@ public final class AnthropicChatBackend implements ChatBackend {
     ) throws IOException {
         byte[] buffer = new byte[READ_BUFFER_BYTES];
         long total = 0;
-        int read;
-        while ((read = input.read(buffer)) != -1) {
+        while (true) {
+            int read;
+            try {
+                read = input.read(buffer);
+            } catch (IOException error) {
+                return ProviderError.of(ProviderError.Kind.PROTOCOL, "Anthropic response was interrupted");
+            }
+            if (read == -1) break;
             total += read;
             if (total > MAX_RESPONSE_BYTES) {
                 return ProviderError.of(ProviderError.Kind.PROTOCOL,

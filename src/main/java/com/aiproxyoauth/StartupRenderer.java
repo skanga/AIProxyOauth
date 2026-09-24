@@ -33,7 +33,7 @@ public final class StartupRenderer {
     public static String render(EffectiveConfig config, Map<ProviderId, ProviderStatus> providerStatuses) {
         StringBuilder output = new StringBuilder();
         List<String> warnings = new ArrayList<>();
-        output.append("AIProxyOauth 2.0.0 started\n\n");
+        output.append("AIProxyOauth 3.0.0 started\n\n");
         output.append("Server\n");
         output.append("  Listening:       http://").append(config.server().host()).append(':').append(config.server().port()).append('\n');
         output.append("  Network access:  ").append(local(config.server().host()) ? "local only" : "network accessible").append('\n');
@@ -45,16 +45,16 @@ public final class StartupRenderer {
         output.append("  OpenAI-compatible:    /v1/chat/completions, /v1/responses, /v1/models\n");
         output.append("  Anthropic-compatible: /v1/messages\n\n");
         output.append("Routing\n");
-        output.append("  Providers:        ").append(providerNames(providerStatuses)).append('\n');
+        output.append("  Providers:        ").append(providerNames(providerStatuses, config.routing().providerOrder())).append('\n');
         output.append("  Default provider: ").append(config.routing().defaultProvider().wireName()).append("\n\n");
         output.append("Providers\n");
-        for (ProviderId provider : List.of(ProviderId.CODEX, ProviderId.ANTHROPIC)) {
+        for (ProviderId provider : config.routing().providerOrder()) {
             ProviderStatus status = providerStatuses.get(provider);
             if (status == null) continue;
-            output.append("  ").append(provider == ProviderId.CODEX ? "Codex" : "Anthropic").append(":\n");
+            output.append("  ").append(switch (provider) { case COPILOT -> "Copilot"; case CODEX -> "Codex"; case ANTHROPIC -> "Anthropic"; }).append(":\n");
             output.append("    Auth:    loaded from ").append(safe(status.credentialSource())).append('\n');
             output.append("    Models:  ").append(status.models().size()).append(", ").append(status.modelSource()).append('\n');
-            if (config.startup().verbose() && !status.models().isEmpty()) {
+            if (!status.models().isEmpty()) {
                 output.append("    IDs:     ").append(String.join(", ", status.models())).append('\n');
             }
             switch (status.check().state()) {
@@ -78,11 +78,8 @@ public final class StartupRenderer {
         return output.toString();
     }
 
-    private static String providerNames(Map<ProviderId, ProviderStatus> statuses) {
-        List<String> names = new ArrayList<>();
-        if (statuses.containsKey(ProviderId.CODEX)) names.add("codex");
-        if (statuses.containsKey(ProviderId.ANTHROPIC)) names.add("anthropic");
-        return String.join(", ", names);
+    private static String providerNames(Map<ProviderId, ProviderStatus> statuses, List<ProviderId> order) {
+        return String.join(", ", order.stream().filter(statuses::containsKey).map(ProviderId::wireName).toList());
     }
 
     private static String cors(EffectiveConfig config) {

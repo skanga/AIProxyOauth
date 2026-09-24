@@ -429,7 +429,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument(
         "--provider",
-        choices=("codex", "anthropic"),
+        choices=("codex", "anthropic", "copilot"),
         default=os.environ.get("AIPROXY_LIVE_PROVIDER", "codex"),
     )
     parser.add_argument(
@@ -469,8 +469,15 @@ def main() -> int:
         model = args.model
     elif args.provider == "anthropic":
         model = os.environ.get("AIPROXY_CLAUDE_MODEL", DEFAULT_ANTHROPIC_MODEL)
+    elif args.provider == "copilot":
+        model = os.environ.get("AIPROXY_COPILOT_MODEL")
+        if not model:
+            print("Copilot checks require --model with an ID from /v1/models.", file=sys.stderr)
+            return 2
     else:
         model = os.environ.get("AIPROXY_CODEX_MODEL", DEFAULT_CODEX_MODEL)
+    if args.provider == "copilot" and not model.startswith("copilot/"):
+        model = "copilot/" + model
 
     try:
         if args.api_format == "anthropic":
@@ -486,7 +493,7 @@ def main() -> int:
 
     print(
         f"Live compatibility checks passed for {args.api_format} "
-        f"{args.provider}/{model} "
+        f"{model if model.startswith(args.provider + '/') else args.provider + '/' + model} "
         f"at {args.base_url}."
     )
     return 0

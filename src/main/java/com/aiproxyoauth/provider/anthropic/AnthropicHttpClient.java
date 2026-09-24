@@ -141,7 +141,7 @@ public final class AnthropicHttpClient {
 
     private HttpResponse<InputStream> send(HttpRequest request) throws IOException {
         try {
-            return httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            return com.aiproxyoauth.transport.InferenceTransport.send(httpClient, request);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             throw new IOException("Anthropic request was interrupted", error);

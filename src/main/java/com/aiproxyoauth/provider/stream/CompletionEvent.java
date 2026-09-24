@@ -101,7 +101,8 @@ public sealed interface CompletionEvent permits
     }
 
     /**
-     * Cumulative usage totals observed so far. Consumers replace prior snapshots rather than
+     * Cumulative usage totals observed so far. Input includes cached and cache-creation tokens;
+     * cache fields are subsets of that total. Consumers replace prior snapshots rather than
      * summing them and record usage once after terminal success.
      */
     record UsageSnapshot(

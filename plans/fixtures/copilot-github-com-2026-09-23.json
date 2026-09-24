@@ -1,0 +1,42 @@
+{
+  "observed_on": "2026-09-23",
+  "reference": "microsoft/vscode@b4abde1c921a634d4caef8492e4f67f13eba6444",
+  "host_kind": "github.com",
+  "credential_source": "user-selected Copilot CLI JSONC config",
+  "authentication": "GitHub token used directly as bearer; no session-token exchange",
+  "discovery_verified": true,
+  "inference_verified": true,
+  "device_login_verified": false,
+  "enterprise_verified": false,
+  "streaming_verified": true,
+  "tool_call_verified": true,
+  "tool_continuation_verified": true,
+  "endpoint_metadata_present": false,
+  "listed_model_ids": [
+    "gpt-4o-mini-2024-07-18",
+    "gpt-4o-2024-11-20",
+    "gpt-4o-2024-08-06",
+    "gpt-3.5-turbo-0613",
+    "gpt-3.5-turbo",
+    "gpt-4o-mini",
+    "gpt-4o"
+  ],
+  "inference": {
+    "endpoint": "/chat/completions",
+    "request": {
+      "model": "gpt-4o-mini",
+      "messages": [{"role": "user", "content": "Reply with OK."}],
+      "max_tokens": 16,
+      "stream": false
+    },
+    "returned_model": "gpt-4o-mini-2024-07-18",
+    "text_present": true,
+    "usage": {"prompt_tokens": 11, "completion_tokens": 2, "total_tokens": 13}
+  },
+  "limitations": [
+    "One account; text, streaming and a tool round trip using gpt-4o-mini; not a complete compatibility matrix",
+    "No Claude models were returned in this catalog",
+    "Absent endpoint metadata is not proof other protocols are unsupported",
+    "OAuth scopes, device login, renewal, enterprise, Responses and Messages remain unverified"
+  ]
+}

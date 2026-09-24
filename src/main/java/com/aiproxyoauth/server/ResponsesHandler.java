@@ -119,6 +119,7 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
 
         if (upstream.statusCode() < 200 || upstream.statusCode() >= 300) {
             try (InputStream is = upstream.body()) {
+                if (Boolean.TRUE.equals(ctx.attribute("providerFailoverAttempt"))) throw new UpstreamFailure(upstream.statusCode());
                 String rawBody = new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
                 UpstreamErrorMapper.MappedUpstreamError mapped = upstreamErrorMapper.map(upstream.statusCode(), rawBody);
                 requestLogger.logUpstreamResponse(requestId, mapped.statusCode(), responseHeaders(upstream), mapped.body());
@@ -153,7 +154,10 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
                 recordUsage(ctx, completed.get("usage"));
                 // Best-effort same-process replay cache only; nothing is persisted locally.
                 state.rememberResponse(completed, expanded);
+                ctx.attribute("completedResponse", completed);
                 JsonHelper.toJsonResponse(ctx, completed);
+            } catch (java.io.IOException error) {
+                JsonHelper.toErrorResponse(ctx, "Upstream response was interrupted or invalid.", 502, "upstream_error");
             }
         }
     }
@@ -257,7 +261,7 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
             }
 
             String parsedEventType = parsed.path("type").asText(eventType != null ? eventType : "");
-            if (!"response.completed".equals(parsedEventType)) {
+            if (!"response.completed".equals(parsedEventType) && !"response.incomplete".equals(parsedEventType)) {
                 return false;
             }
 
@@ -265,6 +269,7 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
             if (response != null && response.isObject()) {
                 recordUsage(ctx, response.get("usage"));
                 state.rememberResponse(response, expandedRequest);
+                ctx.attribute("completedResponse", response);
                 return true;
             }
         } catch (Exception ignored) {
@@ -280,23 +285,7 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
     }
 
     private ResponsesState replayStateFor(Context ctx) {
-        boolean isAdmin = Boolean.TRUE.equals(ctx.attribute("isAdmin"));
-        String keyFingerprint = ctx.attribute("keyFingerprint");
-        String adminKeyFingerprint = ctx.attribute("adminKeyFingerprint");
-        String keyName = ctx.attribute("keyName");
-        String namespace;
-        if (isAdmin && adminKeyFingerprint != null) {
-            namespace = "admin-fp:" + adminKeyFingerprint;
-        } else if (keyFingerprint != null) {
-            namespace = "key-fp:" + keyFingerprint;
-        } else if (keyName != null) {
-            namespace = "key:" + keyName;
-        } else if (isAdmin) {
-            namespace = "admin";
-        } else {
-            namespace = "open";
-        }
-
+        String namespace = ReplayNamespace.of(ctx);
         synchronized (replayStates) {
             return replayStates.computeIfAbsent(namespace, ignored -> new ResponsesState());
         }

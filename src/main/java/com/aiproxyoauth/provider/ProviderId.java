@@ -4,7 +4,12 @@ import java.util.Locale;
 
 public enum ProviderId {
     CODEX("codex"),
-    ANTHROPIC("anthropic");
+    ANTHROPIC("anthropic"),
+    COPILOT("copilot");
+
+    public static java.util.List<ProviderId> defaultOrder() {
+        return java.util.List.of(COPILOT, CODEX, ANTHROPIC);
+    }
 
     private final String wireName;
 

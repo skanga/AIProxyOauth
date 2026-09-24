@@ -40,6 +40,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AnthropicMessagesHandlerTest {
+    @Test
+    void countsCachedNativeInputWithoutChangingTheResponse() throws Exception {
+        String body = "{\"id\":\"msg_cached\",\"usage\":{\"input_tokens\":3,\"output_tokens\":14,\"cache_read_input_tokens\":100,\"cache_creation_input_tokens\":20}}";
+        UsageTracker usage = new UsageTracker();
+        serve(body, 200, "application/json", usage);
+        var response = post(false, "2023-06-01", null);
+        assertEquals(body, response.body());
+        assertEquals(123, usage.snapshot().get(UsageTracker.OPEN_MODE_KEY).promptTokens());
+    }
     @TempDir Path temporary;
     private Javalin app;
     private HttpClient http;

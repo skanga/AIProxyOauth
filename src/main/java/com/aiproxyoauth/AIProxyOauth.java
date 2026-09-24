@@ -17,6 +17,8 @@ import com.aiproxyoauth.model.ModelResolver;
 import com.aiproxyoauth.model.ProviderModelCatalog;
 import com.aiproxyoauth.provider.ProviderId;
 import com.aiproxyoauth.provider.ProviderModel;
+import com.aiproxyoauth.provider.copilot.CopilotCredentials;
+import com.aiproxyoauth.provider.copilot.CopilotOAuth;
 import com.aiproxyoauth.provider.anthropic.AnthropicCompatibilityProfile;
 import com.aiproxyoauth.provider.anthropic.AnthropicHttpClient;
 import com.aiproxyoauth.provider.anthropic.auth.AnthropicAuthCommands;
@@ -63,7 +65,7 @@ import java.util.function.Supplier;
         name = "aiproxy",
         description = "OAuth proxy exposing OpenAI-compatible and Anthropic-compatible APIs.",
         mixinStandardHelpOptions = true,
-        version = "AIProxyOauth 2.0.0",
+        version = "AIProxyOauth 3.0.0",
         subcommands = {
                 AIProxyOauth.ServeCommand.class,
                 AIProxyOauth.AuthCommand.class,
@@ -136,18 +138,14 @@ public class AIProxyOauth implements Callable<Integer> {
         Set<ProviderId> enabledProviders;
         ProviderId effectiveDefaultProvider;
         try {
-            String selectedProviders = switch (effective.routing().provider()) {
-                case AUTO -> null;
-                case CODEX -> "codex";
-                case ANTHROPIC -> "anthropic";
-                case BOTH -> "codex,anthropic";
-            };
+            String selectedProviders = effective.routing().selection();
             enabledProviders = ProviderStartupResolver.resolve(
-                    selectedProviders, codexAuthPath != null, anthropicCredentialAvailable);
+                    selectedProviders, codexAuthPath != null, anthropicCredentialAvailable,
+                    new CopilotCredentials(effective.copilot()).available());
             String requestedDefault = "default".equals(effective.sources().get("routing.default_provider"))
                     ? null : effective.routing().defaultProvider().wireName();
             effectiveDefaultProvider = ProviderStartupResolver.resolveDefault(
-                    requestedDefault, enabledProviders);
+                    requestedDefault, enabledProviders, effective.routing().providerOrder());
         } catch (IllegalArgumentException error) {
             spec.commandLine().getErr().println(error.getMessage());
             return 1;
@@ -208,6 +206,13 @@ public class AIProxyOauth implements Callable<Integer> {
             );
             catalogs.add(anthropicResolver);
         }
+        com.aiproxyoauth.provider.copilot.CopilotClient copilotClient = null;
+        com.aiproxyoauth.model.CopilotModelCatalog copilotCatalog = null;
+        if (enabledProviders.contains(ProviderId.COPILOT)) {
+            copilotClient = new com.aiproxyoauth.provider.copilot.CopilotClient(effective.copilot());
+            copilotCatalog = new com.aiproxyoauth.model.CopilotModelCatalog(copilotClient, effective.copilot().models(), Clock.systemUTC());
+            catalogs.add(copilotCatalog);
+        }
         ModelCatalog modelCatalog = catalogs.size() == 1
                 ? catalogs.getFirst()
                 : new CompositeModelCatalog(catalogs);
@@ -229,13 +234,22 @@ public class AIProxyOauth implements Callable<Integer> {
         UsageTracker usageTracker = new UsageTracker();
         ProxyServer server = new ProxyServer(
                 config, httpClient, modelCatalog, usageTracker, apiKeyStore,
-                activeAnthropicHttpClient, activeAnthropicProfile, effectiveDefaultProvider);
+                activeAnthropicHttpClient, activeAnthropicProfile, effectiveDefaultProvider,
+                copilotClient, copilotCatalog, enabledProviders, effective.routing().providerOrder(), effective.routing().failover());
         server.start();
 
         Map<ProviderId, StartupRenderer.Check> checks = new HashMap<>();
         if (effective.startup().check() == EffectiveConfig.StartupCheck.OFF) {
             enabledProviders.forEach(provider -> checks.put(provider, StartupRenderer.Check.skipped()));
         } else if (effective.startup().check() == EffectiveConfig.StartupCheck.CREDENTIALS) {
+            if (copilotClient != null) {
+                try {
+                    copilotClient.validateCredentials();
+                    checks.put(ProviderId.COPILOT, StartupRenderer.Check.ok("credentials"));
+                } catch (Exception error) {
+                    checks.put(ProviderId.COPILOT, StartupRenderer.Check.failed("credentials", error.getMessage()));
+                }
+            }
             if (enabledProviders.contains(ProviderId.CODEX)) {
                 checks.put(ProviderId.CODEX, authResult != null
                         ? StartupRenderer.Check.ok("credentials")
@@ -252,6 +266,12 @@ public class AIProxyOauth implements Callable<Integer> {
         } else {
             String startupKey = startupClientKey(effective);
             try (HttpClient startupProbeClient = HttpClient.newHttpClient()) {
+                if (copilotClient != null) {
+                    List<String> models = resolveAvailableModels(modelCatalog, ProviderId.COPILOT);
+                    checks.put(ProviderId.COPILOT, models.isEmpty()
+                            ? StartupRenderer.Check.failed("inference", "No Copilot models discovered")
+                            : check(verifyChatCompletionThroughProxy(config, models.stream().map(model -> "copilot/" + model).toList(), startupKey, startupProbeClient)));
+                }
                 if (enabledProviders.contains(ProviderId.CODEX)) {
                     List<String> codexModels = resolveAvailableModels(modelCatalog, ProviderId.CODEX);
                     StartupProbeResult probe = verifyChatCompletionThroughProxy(config,
@@ -267,6 +287,11 @@ public class AIProxyOauth implements Callable<Integer> {
         }
 
         Map<ProviderId, StartupRenderer.ProviderStatus> statuses = new java.util.LinkedHashMap<>();
+        if (copilotClient != null) {
+            String source = new CopilotCredentials(effective.copilot()).source();
+            statuses.put(ProviderId.COPILOT, new StartupRenderer.ProviderStatus(source,
+                    resolveAvailableModels(modelCatalog, ProviderId.COPILOT), "discovered", checks.get(ProviderId.COPILOT)));
+        }
         if (enabledProviders.contains(ProviderId.CODEX)) {
             List<String> providerModels = resolveAvailableModels(modelCatalog, ProviderId.CODEX);
             statuses.put(ProviderId.CODEX, new StartupRenderer.ProviderStatus(
@@ -285,8 +310,8 @@ public class AIProxyOauth implements Callable<Integer> {
         EffectiveConfig displayConfig = effectiveDefaultProvider == effective.routing().defaultProvider()
                 ? effective
                 : new EffectiveConfig(effective.server(),
-                new EffectiveConfig.Routing(effective.routing().provider(), effectiveDefaultProvider),
-                effective.clientAuth(), effective.codex(), effective.anthropic(), effective.cors(),
+                effective.routing().withDefault(effectiveDefaultProvider),
+                effective.clientAuth(), effective.codex(), effective.anthropic(), effective.copilot(), effective.cors(),
                 effective.logging(), effective.startup(), effective.sources());
         spec.commandLine().getOut().print(StartupRenderer.render(displayConfig, statuses));
         spec.commandLine().getOut().flush();
@@ -298,9 +323,14 @@ public class AIProxyOauth implements Callable<Integer> {
             apiKeyStore.stopWatching();
             if (anthropicStore != null) anthropicStore.close();
             authHttpClient.close();
+            if (copilotClient != null) copilotClient.close();
             return failed ? 1 : 0;
         }
         setupShutdownHook(server, authHttpClient, apiKeyStore, anthropicStore);
+        if (copilotClient != null) {
+            var shutdownClient = copilotClient;
+            Runtime.getRuntime().addShutdownHook(new Thread(shutdownClient::close));
+        }
 
         // Keep main thread alive
         Thread.currentThread().join();
@@ -757,14 +787,19 @@ public class AIProxyOauth implements Callable<Integer> {
         String host;
         @Option(names = "--port", paramLabel = "<port>", description = "Port to listen on.")
         Integer port;
-        @Option(names = "--provider", paramLabel = "<auto|codex|anthropic|both>", description = "Upstream provider selection.")
+        @Option(names = "--provider", paramLabel = "<auto|all|both|list>", description = "Upstream providers: codex, anthropic, copilot.")
         String provider;
-        @Option(names = "--default-provider", paramLabel = "<codex|anthropic>", description = "Provider for unqualified OpenAI-compatible model names.")
+        @Option(names = "--default-provider", paramLabel = "<provider>", description = "First-choice enabled provider.")
         String defaultProvider;
+        @Option(names = "--provider-order", description = "Provider preference order, comma separated.") String providerOrder;
+        @Option(names = "--failover", negatable = true, description = "Allow exact-model failover for unqualified requests.") Boolean failover;
+        @Option(names = "--copilot-github-host", description = "github.com or tenant.ghe.com.") String copilotGithubHost;
+        @Option(names = "--copilot-oauth-file", description = "Proxy-managed Copilot login file.") String copilotOauthFile;
+        @Option(names = "--copilot-oauth-client-id", description = "Copilot device authorization client ID.") String copilotOauthClientId;
+        @Option(names = "--copilot-token-file", description = "Explicit token file or read-only Copilot CLI JSONC config.") String copilotTokenFile;
+        @Option(names = "--copilot-models", description = "Restrict discovered Copilot models (comma separated).") String copilotModels;
         @Option(names = "--startup-check", paramLabel = "<off|credentials|inference>", description = "Startup verification mode.")
         String startupCheck;
-        @Option(names = "--verbose", description = "List model IDs in startup output.")
-        Boolean verbose;
         @Option(names = "--client-keys-file", paramLabel = "<path>", description = "File containing proxy client keys.")
         String clientKeysFile;
         @Option(names = "--admin-client-key-file", paramLabel = "<path>", description = "File containing the proxy admin client key.")
@@ -813,7 +848,11 @@ public class AIProxyOauth implements Callable<Integer> {
         ConfigOverrides toOverrides() {
             ConfigOverrides value = new ConfigOverrides();
             value.host = host; value.port = port; value.provider = provider; value.defaultProvider = defaultProvider;
-            value.startupCheck = startupCheck; value.verbose = verbose; value.clientKeysFile = clientKeysFile;
+            value.providerOrder = providerOrder; value.failover = failover;
+            value.copilotGithubHost = copilotGithubHost; value.copilotOauthFile = copilotOauthFile;
+            value.copilotOauthClientId = copilotOauthClientId; value.copilotTokenFile = copilotTokenFile;
+            value.copilotModels = copilotModels;
+            value.startupCheck = startupCheck; value.clientKeysFile = clientKeysFile;
             value.adminClientKeyFile = adminClientKeyFile; value.corsOrigins = corsOrigins;
             value.allowAnyCors = allowAnyCors; value.logRequests = logRequests; value.requestLogDir = requestLogDir;
             value.codexModels = codexModels; value.codexVersion = codexVersion; value.codexBaseUrl = codexBaseUrl;
@@ -829,8 +868,47 @@ public class AIProxyOauth implements Callable<Integer> {
     }
 
     @Command(name = "auth", description = "Manage and inspect provider credentials.",
-            subcommands = {AnthropicAuthCommand.class, AuthStatusCommand.class})
+            subcommands = {AnthropicAuthCommand.class, CopilotAuthCommand.class, AuthStatusCommand.class})
     static final class AuthCommand implements Runnable { public void run() {} }
+
+    @Command(name = "copilot", description = "Manage Copilot credentials.",
+            subcommands = {CopilotLoginCommand.class, CopilotLogoutCommand.class})
+    static final class CopilotAuthCommand implements Runnable { public void run() {} }
+
+    @Command(name = "login", description = "Authorize Copilot using GitHub device login.", mixinStandardHelpOptions = true)
+    static final class CopilotLoginCommand implements Callable<Integer> {
+        @Mixin ServeOptions options = new ServeOptions();
+        @CommandLine.Spec CommandLine.Model.CommandSpec spec;
+        public Integer call() {
+            try {
+                AIProxyOauth root = (AIProxyOauth) spec.root().userObject();
+                var config = EffectiveConfigLoader.load(options.configPath(), root.environment.get(), options.toOverrides());
+                CopilotOAuth.login(config.copilot(), spec.commandLine().getOut());
+                return 0;
+            } catch (Exception error) {
+                if (error instanceof InterruptedException) Thread.currentThread().interrupt();
+                spec.commandLine().getErr().println("Copilot login failed: " + StartupRenderer.safe(error.getMessage()));
+                return 1;
+            }
+        }
+    }
+    @Command(name = "logout", description = "Delete only the proxy-managed Copilot login.", mixinStandardHelpOptions = true)
+    static final class CopilotLogoutCommand implements Callable<Integer> {
+        @Mixin ServeOptions options = new ServeOptions();
+        @CommandLine.Spec CommandLine.Model.CommandSpec spec;
+        public Integer call() {
+            try {
+                AIProxyOauth root = (AIProxyOauth) spec.root().userObject();
+                var config = EffectiveConfigLoader.load(options.configPath(), root.environment.get(), options.toOverrides());
+                new CopilotCredentials(config.copilot()).logout();
+                spec.commandLine().getOut().println("Proxy-managed Copilot login removed; external credentials are unchanged.");
+                return 0;
+            } catch (Exception error) {
+                spec.commandLine().getErr().println("Copilot logout failed: " + StartupRenderer.safe(error.getMessage()));
+                return 1;
+            }
+        }
+    }
 
     @Command(name = "anthropic", description = "Manage Anthropic OAuth credentials.",
             subcommands = {AnthropicLoginCommand.class, AnthropicLogoutCommand.class})
@@ -870,7 +948,9 @@ public class AIProxyOauth implements Callable<Integer> {
                     || Files.isRegularFile(effective.anthropic().oauthFile());
             spec.commandLine().getOut().println("Codex: " + (codex == null ? "not found" : "available from " + codex));
             spec.commandLine().getOut().println("Anthropic: " + (anthropic ? "available" : "not found"));
-            return codex != null || anthropic ? 0 : 1;
+            boolean copilot = new CopilotCredentials(effective.copilot()).available();
+            spec.commandLine().getOut().println("Copilot: " + (copilot ? "available" : "not found or invalid"));
+            return codex != null || anthropic || copilot ? 0 : 1;
         }
     }
 
@@ -927,6 +1007,14 @@ public class AIProxyOauth implements Callable<Integer> {
         out.println("server.port: " + config.server().port() + source(config, "server.port"));
         out.println("routing.provider: " + config.routing().provider().name().toLowerCase(Locale.ROOT) + source(config, "routing.provider"));
         out.println("routing.default_provider: " + config.routing().defaultProvider().wireName() + source(config, "routing.default_provider"));
+        out.println("routing.provider_order: " + config.routing().providerOrder() + source(config, "routing.provider_order"));
+        out.println("routing.failover: " + config.routing().failover() + source(config, "routing.failover"));
+        out.println("copilot.github_host: " + config.copilot().githubHost() + source(config, "copilot.github_host"));
+        out.println("copilot.oauth_file: " + config.copilot().oauthFile() + source(config, "copilot.oauth_file"));
+        out.println("copilot.token_file: " + displayPath(config.copilot().tokenFile()) + source(config, "copilot.token_file"));
+        out.println("copilot.oauth_client_id: " + config.copilot().oauthClientId() + source(config, "copilot.oauth_client_id"));
+        out.println("copilot.models: " + config.copilot().models() + source(config, "copilot.models"));
+        out.println("copilot.environment_token: " + (config.copilot().environmentToken() == null ? "not set" : "<redacted>"));
         out.println("client_auth.keys_file: " + displayPath(config.clientAuth().keysFile()) + source(config, "client_auth.keys_file"));
         out.println("client_auth.admin_key_file: " + displayPath(config.clientAuth().adminKeyFile()) + source(config, "client_auth.admin_key_file"));
         out.println("client_auth.environment_keys: " + (config.clientAuth().environmentKeys().isEmpty() ? "not set" : "<redacted>"));

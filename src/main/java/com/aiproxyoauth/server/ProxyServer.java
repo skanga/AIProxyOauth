@@ -51,6 +51,16 @@ public class ProxyServer {
                        AnthropicHttpClient anthropicClient,
                        AnthropicCompatibilityProfile anthropicProfile,
                        ProviderId defaultProvider) {
+        this(config, client, modelCatalog, usageTracker, apiKeyStore, anthropicClient, anthropicProfile,
+                defaultProvider, null, null, java.util.Set.of(ProviderId.CODEX, ProviderId.ANTHROPIC), ProviderId.defaultOrder(), false);
+    }
+
+    public ProxyServer(ServerConfig config, CodexHttpClient client, ModelCatalog modelCatalog,
+                       UsageTracker usageTracker, ApiKeyStore apiKeyStore,
+                       AnthropicHttpClient anthropicClient, AnthropicCompatibilityProfile anthropicProfile,
+                       ProviderId defaultProvider, com.aiproxyoauth.provider.copilot.CopilotClient copilotClient,
+                       com.aiproxyoauth.model.CopilotModelCatalog copilotCatalog, java.util.Set<ProviderId> enabled,
+                       java.util.List<ProviderId> order, boolean failover) {
         this.config = config;
         if (config.requiresApiKeyEnforcement() && !apiKeyStore.isEnforcing()) {
             throw new IllegalStateException(
@@ -81,18 +91,23 @@ public class ProxyServer {
                 ? null
                 : new AnthropicResponsesBackend(
                         anthropicClient, anthropicProfile, usageTracker, requestLogger);
-        io.javalin.http.Handler chatHandler = new RoutingChatCompletionsHandler(
-                modelCatalog,
-                defaultProvider,
-                codexChat,
-                anthropicChat,
-                fallbackModel);
-        io.javalin.http.Handler responsesHandler = new RoutingResponsesHandler(
-                modelCatalog,
-                defaultProvider,
-                codexResponses,
-                anthropicResponses,
-                fallbackModel);
+        java.util.Map<ProviderId, ChatBackend> chatBackends = new java.util.EnumMap<>(ProviderId.class);
+        java.util.Map<ProviderId, ChatBackend> responseBackends = new java.util.EnumMap<>(ProviderId.class);
+        if (enabled.contains(ProviderId.CODEX)) {
+            chatBackends.put(ProviderId.CODEX, codexChat);
+            responseBackends.put(ProviderId.CODEX, codexResponses::handle);
+        }
+        if (anthropicChat != null && enabled.contains(ProviderId.ANTHROPIC)) {
+            chatBackends.put(ProviderId.ANTHROPIC, anthropicChat);
+            responseBackends.put(ProviderId.ANTHROPIC, anthropicResponses::handle);
+        }
+        if (copilotClient != null && enabled.contains(ProviderId.COPILOT)) {
+            CopilotBackend copilot = new CopilotBackend(copilotClient, copilotCatalog, usageTracker, requestLogger);
+            chatBackends.put(ProviderId.COPILOT, copilot);
+            responseBackends.put(ProviderId.COPILOT, copilot);
+        }
+        io.javalin.http.Handler chatHandler = new ProviderDispatch(modelCatalog, defaultProvider, fallbackModel, chatBackends, order, failover);
+        io.javalin.http.Handler responsesHandler = new ProviderDispatch(modelCatalog, defaultProvider, fallbackModel, responseBackends, order, failover);
         AnthropicMessagesHandler messagesHandler = anthropicClient == null
                 ? null
                 : new AnthropicMessagesHandler(

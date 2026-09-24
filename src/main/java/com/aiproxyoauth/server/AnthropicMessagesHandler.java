@@ -200,7 +200,9 @@ public final class AnthropicMessagesHandler implements Handler {
         try {
             JsonNode usage = Json.MAPPER.readTree(body).path("usage");
             usageTracker.record(context.attribute("keyName"),
-                    usage.path("input_tokens").asLong(), usage.path("output_tokens").asLong());
+                    usage.path("input_tokens").asLong() + usage.path("cache_creation_input_tokens").asLong()
+                            + usage.path("cache_read_input_tokens").asLong(),
+                    usage.path("output_tokens").asLong());
         } catch (Exception ignored) {
             // Native response delivery is not contingent on accounting.
         }

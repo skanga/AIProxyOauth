@@ -660,7 +660,7 @@ class ChatCompletionsHandlerTest {
         assertTrue(resp.body().contains("event: error"));
     }
 
-    @Test void streamTrue_unexpectedDone_terminatesCleanly() throws Exception {
+    @Test void streamTrue_unexpectedDone_terminatesWithError() throws Exception {
         // Upstream sends [DONE] without response.completed
         String shortSse = "data: [DONE]\n\n";
         HttpResponse<InputStream> sseResp = sseResponse(200, shortSse);
@@ -679,7 +679,9 @@ class ChatCompletionsHandlerTest {
                 """);
 
         assertEquals(200, resp.statusCode());
-        assertTrue(resp.body().contains("finish_reason\":\"stop\""));
+        assertTrue(resp.body().contains("event: error"));
+        assertFalse(resp.body().contains("finish_reason\":\"stop\""));
+        assertEquals(1, resp.body().split("\\[DONE\\]", -1).length - 1);
     }
 
     @Test void complexContentParts_translatedCorrectly() throws Exception {

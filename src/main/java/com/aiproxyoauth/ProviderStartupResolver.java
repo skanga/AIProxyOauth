@@ -14,7 +14,13 @@ final class ProviderStartupResolver {
             boolean codexCredentialAvailable,
             boolean anthropicCredentialAvailable
     ) {
+        return resolve(configuredProviders, codexCredentialAvailable, anthropicCredentialAvailable, false);
+    }
+
+    static Set<ProviderId> resolve(String configuredProviders, boolean codexCredentialAvailable,
+            boolean anthropicCredentialAvailable, boolean copilotCredentialAvailable) {
         EnumSet<ProviderId> available = EnumSet.noneOf(ProviderId.class);
+        if (copilotCredentialAvailable) available.add(ProviderId.COPILOT);
         if (codexCredentialAvailable) {
             available.add(ProviderId.CODEX);
         }
@@ -25,7 +31,7 @@ final class ProviderStartupResolver {
         if (configuredProviders == null || configuredProviders.isBlank()) {
             if (available.isEmpty()) {
                 throw new IllegalArgumentException(
-                        "No usable Codex or Anthropic OAuth credential was found");
+                        "No usable Copilot, Codex or Anthropic OAuth credential was found");
             }
             return Set.copyOf(available);
         }
@@ -51,12 +57,15 @@ final class ProviderStartupResolver {
     }
 
     static ProviderId resolveDefault(String configuredDefault, Set<ProviderId> enabled) {
+        return resolveDefault(configuredDefault, enabled, ProviderId.defaultOrder());
+    }
+
+    static ProviderId resolveDefault(String configuredDefault, Set<ProviderId> enabled, java.util.List<ProviderId> order) {
         if (enabled == null || enabled.isEmpty()) {
             throw new IllegalArgumentException("At least one provider must be enabled");
         }
         if (configuredDefault == null || configuredDefault.isBlank()) {
-            return enabled.contains(ProviderId.CODEX)
-                    ? ProviderId.CODEX : enabled.iterator().next();
+            return order.stream().filter(enabled::contains).findFirst().orElseThrow();
         }
         ProviderId requested = ProviderId.parse(configuredDefault);
         if (!enabled.contains(requested)) {

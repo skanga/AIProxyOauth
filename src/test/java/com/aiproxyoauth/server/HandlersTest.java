@@ -35,8 +35,8 @@ class HandlersTest {
         JsonNode node = Json.MAPPER.readTree(resultCaptor.getValue());
         assertTrue(node.path("ok").asBoolean());
         assertEquals("AIProxyOauth", node.path("service").asText());
-        assertEquals("1.3.0", node.path("version").asText());
         assertEquals(4, node.path("uptime_seconds").asLong());
+        assertEquals("3.0.0", node.path("version").asText());
         assertFalse(node.has("auth_file"));
         assertFalse(node.has("api_keys"));
         assertFalse(node.has("models"));

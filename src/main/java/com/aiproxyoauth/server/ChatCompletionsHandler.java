@@ -105,6 +105,7 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
 
         try (InputStream responseStream = upstream.body()) {
             if (upstream.statusCode() < 200 || upstream.statusCode() >= 300) {
+                if (Boolean.TRUE.equals(ctx.attribute("providerFailoverAttempt"))) throw new UpstreamFailure(upstream.statusCode());
                 String rawBody = new String(responseStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
                 UpstreamErrorMapper.MappedUpstreamError mapped = upstreamErrorMapper.map(upstream.statusCode(), rawBody);
                 requestLogger.logUpstreamResponse(requestId, mapped.statusCode(), responseHeaders(upstream), mapped.body());
@@ -302,7 +303,13 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
     }
 
     private void nonStreamToClient(Context ctx, InputStream upstreamBody, String model) throws Exception {
-        JsonNode completedResponse = SseCollector.collectCompletedResponse(upstreamBody);
+        JsonNode completedResponse;
+        try {
+            completedResponse = SseCollector.collectCompletedResponse(upstreamBody);
+        } catch (java.io.IOException error) {
+            JsonHelper.toErrorResponse(ctx, "Upstream response was interrupted or invalid.", 502, "upstream_error");
+            return;
+        }
 
         String id = "chatcmpl_" + UUID.randomUUID();
         long created = System.currentTimeMillis() / 1000;
@@ -368,7 +375,8 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
             message.put("refusal", refusal);
         }
 
-        if (textContent.isEmpty() && toolCalls.isEmpty() && (refusal == null || refusal.isBlank())) {
+        if (textContent.isEmpty() && toolCalls.isEmpty() && (refusal == null || refusal.isBlank())
+                && !"incomplete".equals(completedResponse.path("status").asText())) {
             JsonHelper.toErrorResponse(ctx,
                     "Upstream completed without text, tool calls, or a refusal.",
                     502, "upstream_protocol_error", null, "empty_completion");
@@ -415,13 +423,11 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
         try {
             SseParser.iterateEvents(upstreamBody, event -> {
                 try {
+                    if (doneSent[0]) return;
                     if (event.data() == null || event.data().isEmpty()) return;
                     if ("[DONE]".equals(event.data())) {
-                        // If upstream sends [DONE] without a response.completed event (e.g. on
-                        // error mid-stream), emit a synthetic finish chunk so clients don't hang
-                        // waiting for a non-null finish_reason.
                         if (!finishSent[0]) {
-                            writeSseChunk(ctx, os, createChunk(id, created, model, createEmptyDelta(), "stop"));
+                            writeSseError(ctx, os, "Upstream stream ended without a terminal response.");
                             finishSent[0] = true;
                         }
                         byte[] doneBytes = "data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8);
@@ -431,6 +437,8 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                         doneSent[0] = true;
                         return;
                     }
+
+                    if (finishSent[0]) return;
 
                     JsonNode parsed = MAPPER.readTree(event.data());
                     if (parsed == null || !parsed.isObject()) return;
@@ -443,6 +451,13 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                             if (!delta.isEmpty()) {
                                 writeSseChunk(ctx, os, createChunk(id, created, model,
                                         createContentDelta(delta), null));
+                            }
+                        }
+                        case "response.refusal.delta" -> {
+                            String refusal = parsed.path("delta").asText("");
+                            if (!refusal.isEmpty()) {
+                                ObjectNode delta = MAPPER.createObjectNode().put("refusal", refusal);
+                                writeSseChunk(ctx, os, createChunk(id, created, model, delta, null));
                             }
                         }
                         case "response.output_item.added" -> {
@@ -505,7 +520,7 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                             emitMissingArguments(ctx, os, id, created, model, toolIndexes,
                                     emittedToolArguments, callId, parsed.path("arguments").asText(""));
                         }
-                        case "response.completed" -> {
+                        case "response.completed", "response.incomplete" -> {
                             JsonNode response = parsed.get("response");
                             JsonNode output = response != null ? response.get("output") : null;
                             if (output != null && output.isArray()) {
@@ -516,7 +531,8 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                                     }
                                 }
                             }
-                            String status = response != null ? response.path("status").asText("") : "";
+                            String status = "response.incomplete".equals(eventType) ? "incomplete"
+                                    : response != null ? response.path("status").asText("") : "";
                             String fr = switch (status) {
                                 case "completed" -> toolIndexes.isEmpty() ? "stop" : "tool_calls";
                                 case "incomplete" -> "length";
@@ -546,21 +562,15 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                             String errorMsg = response != null
                                     ? response.path("error").path("message").asText("Upstream response failed.")
                                     : "Upstream response failed.";
-                            // Emit a finish chunk with "stop" so the client stream terminates cleanly,
-                            // then write an error SSE event with details.
-                            if (!finishSent[0]) {
-                                writeSseChunk(ctx, os, createChunk(id, created, model, createEmptyDelta(), "stop"));
-                                finishSent[0] = true;
-                            }
-                            ObjectNode errPayload = MAPPER.createObjectNode();
-                            ObjectNode errObj = MAPPER.createObjectNode();
-                            errObj.put("message", errorMsg);
-                            errObj.put("type", "upstream_error");
-                            errPayload.set("error", errObj);
-                            String errLine = "event: error\ndata: " + MAPPER.writeValueAsString(errPayload) + "\n\n";
-                            byte[] errorBytes = errLine.getBytes(StandardCharsets.UTF_8);
-                            os.write(errorBytes);
-                            AccessLogFields.addResponseBytes(ctx, errorBytes.length);
+                            writeSseError(ctx, os, errorMsg);
+                            finishSent[0] = true;
+                        }
+                        case "error" -> {
+                            // Bare error events carry the message at the top level, not under `response`.
+                            String errorMsg = parsed.path("message").asText(
+                                    parsed.path("error").path("message").asText("Upstream response failed."));
+                            writeSseError(ctx, os, errorMsg);
+                            finishSent[0] = true;
                         }
                     }
                 } catch (java.io.IOException e) {
@@ -570,13 +580,14 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                     throw new RuntimeException(e);
                 }
             });
+        } catch (java.io.IOException | java.io.UncheckedIOException interruptedStream) {
+            // The terminal SSE error below owns stream failures. Do not append a JSON HTTP error.
         } finally {
-            // Guarantee a finish chunk + [DONE] are sent even if the upstream stream
-            // ends abnormally (no [DONE] event and no response.completed).
+            // A missing terminal event is a failure, never a successful synthetic stop.
             if (!doneSent[0]) {
                 try {
                     if (!finishSent[0]) {
-                        writeSseChunk(ctx, os, createChunk(id, created, model, createEmptyDelta(), "stop"));
+                        writeSseError(ctx, os, "Upstream stream ended without a terminal response.");
                     }
                     byte[] doneBytes = "data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8);
                     os.write(doneBytes);
@@ -585,6 +596,15 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
             }
             os.flush();
         }
+    }
+
+    private void writeSseError(Context ctx, OutputStream output, String message) throws java.io.IOException {
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.putObject("error").put("message", message).put("type", "upstream_error");
+        byte[] bytes = ("event: error\ndata: " + payload + "\n\n").getBytes(StandardCharsets.UTF_8);
+        output.write(bytes);
+        AccessLogFields.addResponseBytes(ctx, bytes.length);
+        output.flush();
     }
 
     private String validateToolChoice(JsonNode body) {

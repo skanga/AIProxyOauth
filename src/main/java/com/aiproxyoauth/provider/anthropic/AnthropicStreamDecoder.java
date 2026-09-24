@@ -149,8 +149,15 @@ public final class AnthropicStreamDecoder implements CompletionStreamDecoder {
         JsonNode block = root.path("content_block");
         String type = requiredText(block, "type");
         switch (type) {
-            case "text" -> start(index, BlockType.TEXT, null, null, events);
-            case "thinking" -> start(index, BlockType.REASONING, null, null, events);
+            case "text" -> {
+                start(index, BlockType.TEXT, null, null, events);
+                if (!block.path("text").asText().isEmpty()) events.add(new CompletionEvent.TextDelta(index, block.path("text").asText()));
+            }
+            case "thinking" -> {
+                start(index, BlockType.REASONING, null, null, events);
+                if (!block.path("thinking").asText().isEmpty()) events.add(new CompletionEvent.ReasoningDelta(index, block.path("thinking").asText()));
+                if (!block.path("signature").asText().isEmpty()) events.add(new CompletionEvent.ReasoningSignature(index, block.path("signature").asText()));
+            }
             case "redacted_thinking" -> {
                 start(index, BlockType.REDACTED_REASONING, null, null, events);
                 JsonNode data = block.get("data");
@@ -283,7 +290,7 @@ public final class AnthropicStreamDecoder implements CompletionStreamDecoder {
         cacheReadInputTokens = valueOrPrevious(
                 usage, "cache_read_input_tokens", cacheReadInputTokens);
         events.add(new CompletionEvent.UsageSnapshot(
-                inputTokens,
+                inputTokens + cacheCreationInputTokens + cacheReadInputTokens,
                 outputTokens,
                 cacheCreationInputTokens,
                 cacheReadInputTokens

@@ -9,6 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ProviderStartupResolverTest {
+    @Test void prefersCopilotWhenEnabled() {
+        assertEquals(ProviderId.COPILOT, ProviderStartupResolver.resolveDefault(null, Set.of(ProviderId.values())));
+    }
     @Test
     void defaultsToEveryProviderWithCredentials() {
         assertEquals(

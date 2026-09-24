@@ -8,10 +8,10 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.Consumer;
 
-final class IncrementalSseFramer {
-    static final int DEFAULT_MAX_EVENT_BYTES = 4 * 1024 * 1024;
+public final class IncrementalSseFramer {
+    public static final int DEFAULT_MAX_EVENT_BYTES = 4 * 1024 * 1024;
 
-    record Event(String name, String data) {
+    public record Event(String name, String data) {
     }
 
     static final class FrameLimitException extends RuntimeException {
@@ -34,14 +34,14 @@ final class IncrementalSseFramer {
     private final StringBuilder data = new StringBuilder();
     private int accumulatedDataBytes;
 
-    IncrementalSseFramer(int maximumBytes) {
+    public IncrementalSseFramer(int maximumBytes) {
         if (maximumBytes < 1) {
             throw new IllegalArgumentException("maximumBytes must be positive");
         }
         this.maximumBytes = maximumBytes;
     }
 
-    void feed(byte[] bytes, Consumer<Event> consumer) {
+    public void feed(byte[] bytes, Consumer<Event> consumer) {
         Objects.requireNonNull(bytes, "bytes");
         Objects.requireNonNull(consumer, "consumer");
         int unread = size - readPosition;
@@ -65,7 +65,7 @@ final class IncrementalSseFramer {
         compact();
     }
 
-    boolean hasPendingData() {
+    public boolean hasPendingData() {
         return size > 0 || !eventName.isEmpty() || !data.isEmpty();
     }
 

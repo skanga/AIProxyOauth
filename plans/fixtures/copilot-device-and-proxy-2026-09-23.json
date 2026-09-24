@@ -1,0 +1,27 @@
+{
+  "observed_on": "2026-09-23",
+  "host_kind": "github.com",
+  "device_login": {
+    "verified": true,
+    "public_client_id": "01ab8ac9400c4e429b23",
+    "requested_scopes": [],
+    "discovery_verified": true,
+    "inference_verified": true,
+    "token_retained_in_repository": false
+  },
+  "packaged_proxy": {
+    "version": "3.0.0",
+    "model": "copilot/gpt-4o-mini",
+    "upstream_protocol": "/chat/completions",
+    "chat_sync": true,
+    "chat_stream": true,
+    "responses_sync": true,
+    "responses_stream": true,
+    "tool_call": true,
+    "tool_result_continuation": true,
+    "previous_response_id": true,
+    "usage": true,
+    "qualified_model_listing": true
+  },
+  "live_unverified": ["Enterprise Cloud", "native Responses upstream", "native Messages upstream"]
+}

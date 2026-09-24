@@ -13,6 +13,22 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class StartupRendererTest {
     @Test
+    void alwaysListsEveryModelGroupedInConfiguredProviderOrder() {
+        ConfigOverrides overrides = new ConfigOverrides();
+        overrides.providerOrder = "anthropic,copilot,codex";
+        EffectiveConfig config = EffectiveConfigLoader.load(null, Map.of(), overrides);
+        String rendered = StartupRenderer.render(config, Map.of(
+                ProviderId.CODEX, new StartupRenderer.ProviderStatus("environment", List.of("gpt-one", "gpt-two"), "discovered", StartupRenderer.Check.skipped()),
+                ProviderId.COPILOT, new StartupRenderer.ProviderStatus("environment", List.of("copilot-one", "copilot-two"), "discovered", StartupRenderer.Check.skipped()),
+                ProviderId.ANTHROPIC, new StartupRenderer.ProviderStatus("environment", List.of("claude-one", "claude-two"), "discovered", StartupRenderer.Check.skipped())));
+        assertTrue(rendered.contains("Providers:        anthropic, copilot, codex"));
+        assertTrue(rendered.contains("IDs:     claude-one, claude-two"));
+        assertTrue(rendered.contains("IDs:     copilot-one, copilot-two"));
+        assertTrue(rendered.contains("IDs:     gpt-one, gpt-two"));
+        assertTrue(rendered.indexOf("  Anthropic:") < rendered.indexOf("  Copilot:"));
+        assertTrue(rendered.indexOf("  Copilot:") < rendered.indexOf("  Codex:"));
+    }
+    @Test
     void rendersUnifiedDualProviderBannerWithoutSecretsOrPii() {
         ConfigOverrides overrides = new ConfigOverrides();
         overrides.provider = "both";
@@ -29,7 +45,7 @@ class StartupRendererTest {
 
         String rendered = StartupRenderer.render(config, providers);
 
-        assertTrue(rendered.contains("AIProxyOauth 2.0.0 started"));
+        assertTrue(rendered.contains("AIProxyOauth 3.0.0 started"));
         assertTrue(rendered.contains("OpenAI-compatible:"));
         assertTrue(rendered.contains("Anthropic-compatible:"));
         assertTrue(rendered.contains("Providers:        codex, anthropic"));
@@ -45,7 +61,6 @@ class StartupRendererTest {
         ConfigOverrides overrides = new ConfigOverrides();
         overrides.provider = "codex";
         overrides.startupCheck = "off";
-        overrides.verbose = true;
         EffectiveConfig config = EffectiveConfigLoader.load(null, Map.of(), overrides);
         String rendered = StartupRenderer.render(config, Map.of(
                 ProviderId.CODEX, new StartupRenderer.ProviderStatus(

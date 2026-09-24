@@ -17,6 +17,13 @@ SPEC.loader.exec_module(live)
 
 
 class LiveCompatibilityTest(unittest.TestCase):
+    def test_copilot_requires_explicit_discovered_model_and_qualifies_it(self) -> None:
+        with patch("sys.argv", ["live-compatibility.py", "--provider", "copilot"]), patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(2, live.main())
+        with patch("sys.argv", ["live-compatibility.py", "--provider", "copilot", "--model", "test-model"]), patch.object(live, "run_checks") as checks:
+            self.assertEqual(0, live.main())
+            self.assertEqual("copilot/test-model", checks.call_args.args[1])
+
     def test_parses_chat_sse_and_requires_one_done(self) -> None:
         payload = (
             'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n'

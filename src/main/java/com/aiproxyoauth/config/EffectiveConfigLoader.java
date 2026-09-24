@@ -24,7 +24,8 @@ public final class EffectiveConfigLoader {
     private static final String DEFAULT_ANTHROPIC_TOKEN = "default";
     private static final Map<String, Set<String>> YAML_KEYS = Map.ofEntries(
             Map.entry("server", Set.of("host", "port")),
-            Map.entry("routing", Set.of("provider", "default_provider")),
+            Map.entry("routing", Set.of("provider", "default_provider", "provider_order", "failover")),
+            Map.entry("copilot", Set.of("github_host", "oauth_file", "oauth_client_id", "token_file", "models")),
             Map.entry("client_auth", Set.of("keys_file", "admin_key_file")),
             Map.entry("codex", Set.of("oauth_file", "models", "version", "base_url", "oauth_client_id",
                     "oauth_token_url", "store", "forward_prompt_cache_headers", "instructions")),
@@ -46,15 +47,45 @@ public final class EffectiveConfigLoader {
         int port = integer("server.port", cli.port, environment.get("AIPROXY_PORT"), yaml, 10531, sources);
         if (port < 1 || port > 65535) throw new ConfigException("server.port must be in range 1-65535");
 
-        EffectiveConfig.ProviderSelection provider = enumValue("routing.provider", cli.provider,
-                environment.get("AIPROXY_PROVIDER"), yaml, "auto", EffectiveConfig.ProviderSelection.class, sources);
-        ProviderId defaultProvider = providerId(choose("routing.default_provider", cli.defaultProvider,
-                environment.get("AIPROXY_DEFAULT_PROVIDER"), yaml, "codex", sources));
-        if ("default".equals(sources.get("routing.default_provider"))
-                && provider == EffectiveConfig.ProviderSelection.ANTHROPIC) {
-            defaultProvider = ProviderId.ANTHROPIC;
+        String selection = choose("routing.provider", cli.provider, environment.get("AIPROXY_PROVIDER"), yaml, "auto", sources);
+        EffectiveConfig.ProviderSelection provider;
+        try { provider = selection.contains(",") ? EffectiveConfig.ProviderSelection.CUSTOM
+                : EffectiveConfig.ProviderSelection.valueOf(selection.toUpperCase(Locale.ROOT)); }
+        catch (IllegalArgumentException error) { throw new ConfigException("Invalid routing.provider: " + selection); }
+        if (provider == EffectiveConfig.ProviderSelection.CUSTOM && !selection.contains(",")) {
+            throw new ConfigException("routing.provider requires a provider list");
         }
-        validateDefaultProvider(provider, defaultProvider);
+        List<ProviderId> selected = switch (provider) {
+            case AUTO -> List.of();
+            case ALL -> ProviderId.defaultOrder();
+            case BOTH -> List.of(ProviderId.CODEX, ProviderId.ANTHROPIC);
+            default -> providerList(selection, false);
+        };
+        List<ProviderId> order = providerList(choose("routing.provider_order", cli.providerOrder,
+                environment.get("AIPROXY_PROVIDER_ORDER"), yaml, "copilot,codex,anthropic", sources), true);
+        boolean failover = bool("routing.failover", cli.failover, environment.get("AIPROXY_FAILOVER"), yaml, false, sources);
+        ProviderId preferred = order.stream().filter(p -> selected.isEmpty() || selected.contains(p)).findFirst().orElseThrow();
+        ProviderId defaultProvider = providerId(choose("routing.default_provider", cli.defaultProvider,
+                environment.get("AIPROXY_DEFAULT_PROVIDER"), yaml, preferred.wireName(), sources));
+        if (!selected.isEmpty() && !selected.contains(defaultProvider)) {
+            throw new ConfigException("routing.default_provider must be one of the enabled providers");
+        }
+
+        String copilotHost = choose("copilot.github_host", cli.copilotGithubHost,
+                environment.get("AIPROXY_COPILOT_GITHUB_HOST"), yaml, "github.com", sources).toLowerCase(Locale.ROOT);
+        if (!copilotHost.equals("github.com") && !copilotHost.matches("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.ghe\\.com")) {
+            throw new ConfigException("copilot.github_host must be github.com or tenant.ghe.com");
+        }
+        Path copilotOauth = path("copilot.oauth_file", cli.copilotOauthFile,
+                environment.get("AIPROXY_COPILOT_OAUTH_FILE"), yaml,
+                AnthropicCredentialPaths.defaultPath().resolveSibling("copilot-auth.json").toString(), yamlBase, sources);
+        Path copilotTokenFile = path("copilot.token_file", cli.copilotTokenFile,
+                environment.get("AIPROXY_COPILOT_TOKEN_FILE"), yaml, null, yamlBase, sources);
+        requireReadable(copilotTokenFile, "copilot.token_file");
+        String copilotClientId = choose("copilot.oauth_client_id", cli.copilotOauthClientId,
+                environment.get("AIPROXY_COPILOT_OAUTH_CLIENT_ID"), yaml, "01ab8ac9400c4e429b23", sources);
+        List<String> copilotModels = list("copilot.models", cli.copilotModels,
+                environment.get("AIPROXY_COPILOT_MODELS"), yaml, sources);
 
         Path keysFile = path("client_auth.keys_file", cli.clientKeysFile,
                 environment.get("AIPROXY_CLIENT_KEYS_FILE"), yaml, null, yamlBase, sources);
@@ -123,19 +154,19 @@ public final class EffectiveConfigLoader {
                 environment.get("AIPROXY_REQUEST_LOG_DIR"), yaml, Path.of("logs", "requests").toString(), yamlBase, sources);
         EffectiveConfig.StartupCheck startupCheck = enumValue("startup.check", cli.startupCheck,
                 environment.get("AIPROXY_STARTUP_CHECK"), yaml, "inference", EffectiveConfig.StartupCheck.class, sources);
-        boolean verbose = cli.verbose != null ? cli.verbose : parseBoolean("verbose", environment.get("AIPROXY_VERBOSE"), false);
-        sources.put("startup.verbose", cli.verbose != null ? "cli" : environment.containsKey("AIPROXY_VERBOSE") ? "environment" : "default");
 
         return new EffectiveConfig(
                 new EffectiveConfig.Server(host, port),
-                new EffectiveConfig.Routing(provider, defaultProvider),
+                new EffectiveConfig.Routing(provider, defaultProvider, selected, order, failover),
                 new EffectiveConfig.ClientAuth(keysFile, adminFile, environmentKeys, environmentAdmin),
                 new EffectiveConfig.Codex(codexModels, codexVersion, codexBase, codexOauth, codexClientId,
                         codexTokenUrl, codexStore, forwardCache, instructionsMode, instructionsFile, instructionsCache),
                 new EffectiveConfig.Anthropic(anthropicModels, anthropicBase, anthropicOauth, anthropicToken),
+                new EffectiveConfig.Copilot(copilotHost, copilotOauth, copilotClientId, copilotTokenFile,
+                        stripToNull(environment.get("AIPROXY_COPILOT_TOKEN")), copilotModels),
                 new EffectiveConfig.Cors(origins, allowAny),
                 new EffectiveConfig.Logging(logRequests, logDirectory),
-                new EffectiveConfig.Startup(startupCheck, verbose),
+                new EffectiveConfig.Startup(startupCheck),
                 Map.copyOf(sources));
     }
 
@@ -335,18 +366,19 @@ public final class EffectiveConfigLoader {
     }
 
     private static ProviderId providerId(String value) {
-        return switch (value.toLowerCase(Locale.ROOT)) {
-            case "codex" -> ProviderId.CODEX;
-            case "anthropic" -> ProviderId.ANTHROPIC;
-            default -> throw new ConfigException("Invalid routing.default_provider: " + value);
-        };
+        try { return ProviderId.parse(value); }
+        catch (IllegalArgumentException error) { throw new ConfigException("Invalid provider: " + value); }
     }
 
-    private static void validateDefaultProvider(EffectiveConfig.ProviderSelection selection, ProviderId defaultProvider) {
-        if (selection == EffectiveConfig.ProviderSelection.CODEX && defaultProvider != ProviderId.CODEX
-                || selection == EffectiveConfig.ProviderSelection.ANTHROPIC && defaultProvider != ProviderId.ANTHROPIC) {
-            throw new ConfigException("routing.default_provider must be one of the enabled providers");
+    private static List<ProviderId> providerList(String value, boolean appendMissing) {
+        List<ProviderId> result = new ArrayList<>();
+        for (String part : value.split(",", -1)) {
+            ProviderId provider = providerId(part);
+            if (result.contains(provider)) throw new ConfigException("Duplicate provider: " + part);
+            result.add(provider);
         }
+        if (appendMissing) ProviderId.defaultOrder().forEach(p -> { if (!result.contains(p)) result.add(p); });
+        return List.copyOf(result);
     }
 
     private static String stripToNull(String value) {

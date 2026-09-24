@@ -1,5 +1,57 @@
 # OpenAI API compatibility
 
+## Shared provider contract
+
+`ProviderContractTest` runs the same offline HTTP assertions against Codex, Anthropic,
+and Copilot's Chat, Responses, and Messages upstream protocols. It covers text and
+usage in both client modes, incomplete completions, interrupted Chat streams,
+translated Responses failure envelopes, refusals where the wire protocol supports
+them, implicit Responses messages, replay, model-list routing, and Copilot failover
+eligibility. Separate transport and native Anthropic tests cover deadlines and usage.
+
+- A Chat stream without a terminal upstream response ends with an error and one
+  `[DONE]`; it does not synthesize a successful `stop` finish reason.
+- Codex `response.incomplete` is collected as an incomplete response and maps to
+  Chat's `length` finish reason, with reported usage retained.
+- Translated Responses failures retain response identity and include event type,
+  sequence number, failed status, and an error object.
+- Anthropic canonical input-token totals include uncached, cache-read, and
+  cache-creation tokens. Native payloads remain unchanged; `/v1/usage` uses the
+  inclusive total.
+- Copilot model IDs remain qualified. Codex and Anthropic IDs are qualified in
+  `/v1/models` when their raw names collide with another model ID or alias;
+  non-colliding IDs retain their existing names.
+- Copilot eligibility and execution use the same validation and encoding path.
+  Translated Responses requests reject non-null `encrypted_content` locally;
+  Codex Responses continues to forward it unchanged.
+- Codex uses a 15-second connection timeout and a 120-second HTTP request timeout.
+  These are connection/response-acquisition deadlines, not a total generation budget.
+
+Run `mvn test -Dtest=ProviderContractTest,CodexHttpClientTest,AnthropicUsageObserverTest,AnthropicMessagesHandlerTest`.
+These fixtures do not contact live providers or validate current account/model availability.
+
+## Copilot 3.0
+
+Both `/v1/chat/completions` and `/v1/responses` accept Copilot models. Upstream protocol selection follows the model catalog: prefer the corresponding Chat or Responses endpoint, then another advertised supported endpoint. Legacy catalogs without endpoint metadata use the live-verified Chat Completions protocol. The native client `/v1/messages` endpoint remains Anthropic-only.
+
+| Copilot behavior | Support |
+|---|---|
+| Text, streaming/non-streaming | All three upstream protocols; terminal events required |
+| Function calls and results | Advertised tool capability; declared named tools required |
+| Inline images | Advertised vision capability and image size/count/media limits |
+| Reasoning effort | Only advertised effort levels; protocol-specific encoding |
+| Usage | Reported input/output/cache counts; no billing estimates |
+| Responses state | Completed responses only; bounded client/account-isolated local replay |
+| Structured output, remote images, audio, files | Unsupported; rejected rather than fetched or silently translated |
+| Provider-specific reasoning state across protocols | Rejected when it cannot be represented |
+| Unknown request fields | Rejected on Copilot; existing Codex passthrough behavior is preserved |
+
+Live GitHub.com validation covered device authorization, discovery, both OpenAI client APIs in both modes, functions and tool-result continuation, and replay using `gpt-4o-mini` via the Chat upstream protocol. The Responses and Messages upstream paths are covered by offline HTTP fixtures; live model/account coverage is not claimed. Enterprise Cloud remains live-unverified and is not a release requirement.
+
+Use `python scripts/live-compatibility.py --provider copilot --model <discovered-id>`; Copilot has no default test model. See `plans/github-copilot-3.0.md` for sanitized evidence and the pinned transport reference.
+
+## Existing Codex behavior
+
 Baseline: OpenAI Chat Completions and Responses API documentation reviewed July 12, 2026.
 
 | Behavior | Chat Completions | Responses |

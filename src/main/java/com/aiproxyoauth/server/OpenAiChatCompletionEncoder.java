@@ -15,6 +15,7 @@ import java.util.Objects;
 public final class OpenAiChatCompletionEncoder {
     private final String requestedModel;
     private final StringBuilder content = new StringBuilder();
+    private final StringBuilder refusal = new StringBuilder();
     private final StringBuilder reasoning = new StringBuilder();
     private final Map<Integer, ToolCall> toolCalls = new LinkedHashMap<>();
     private String id;
@@ -41,7 +42,7 @@ public final class OpenAiChatCompletionEncoder {
             return delta.text().isEmpty() ? List.of() : List.of(chunk(textDelta(delta.text()), null));
         }
         if (event instanceof CompletionEvent.RefusalDelta delta) {
-            content.append(delta.refusal());
+            refusal.append(delta.refusal());
             ObjectNode payload = Json.MAPPER.createObjectNode();
             payload.put("refusal", delta.refusal());
             return List.of(chunk(payload, null));
@@ -89,6 +90,7 @@ public final class OpenAiChatCompletionEncoder {
         ObjectNode message = choice.putObject("message");
         message.put("role", "assistant");
         if (content.isEmpty()) message.putNull("content"); else message.put("content", content.toString());
+        if (!refusal.isEmpty()) message.put("refusal", refusal.toString());
         if (!reasoning.isEmpty()) message.put("reasoning_content", reasoning.toString());
         if (!toolCalls.isEmpty()) {
             ArrayNode calls = message.putArray("tool_calls");

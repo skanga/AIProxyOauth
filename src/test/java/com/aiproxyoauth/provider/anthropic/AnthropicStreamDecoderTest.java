@@ -71,7 +71,7 @@ class AnthropicStreamDecoderTest {
         assertEquals(List.of(
                 new CompletionEvent.Started(
                         "msg_1", "claude-sonnet-4-5", CLOCK.instant().getEpochSecond()),
-                new CompletionEvent.UsageSnapshot(5, 0, 2, 3),
+                new CompletionEvent.UsageSnapshot(10, 0, 2, 3),
                 new CompletionEvent.Heartbeat(),
                 new CompletionEvent.BlockStarted(0, BlockType.TEXT, null, null),
                 new CompletionEvent.TextDelta(0, "A🙂"),
@@ -85,7 +85,7 @@ class AnthropicStreamDecoderTest {
                 new CompletionEvent.ToolCallArgumentsDelta(2, "{\"path\":"),
                 new CompletionEvent.ToolCallArgumentsDelta(2, "\"x\"}"),
                 new CompletionEvent.BlockFinished(2),
-                new CompletionEvent.UsageSnapshot(5, 7, 2, 3),
+                new CompletionEvent.UsageSnapshot(10, 7, 2, 3),
                 new CompletionEvent.Finished(FinishReason.TOOL_CALLS)
         ), events);
         assertTrue(decoder.end().isEmpty());

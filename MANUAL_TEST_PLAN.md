@@ -1,18 +1,30 @@
-# AIProxyOauth 2.0 Manual Test Plan
+# AIProxyOauth 3.0 Manual Test Plan
 
-Run this matrix with disposable Codex and Anthropic test credentials. Never paste production OAuth tokens or proxy keys into transcripts.
+Run this matrix with authorized Copilot, Codex, and Anthropic test credentials. Never paste OAuth tokens or proxy keys into transcripts.
 
 ## 1. Build and automated gate
 
 ```bash
 mvn test
 mvn clean package
-java -jar target/AIProxyOauth-2.0.0.jar --version
+java -jar target/AIProxyOauth-3.0.0.jar --version
 ```
 
-Expected: all tests pass, the fat JAR exists, and the version is `2.0.0`.
+Expected: all tests pass, the fat JAR exists, and the version is `3.0.0`.
 
 Repeat the command checks below on Windows PowerShell and one Unix-like shell.
+
+## Copilot 3.0 checks
+
+1. Run `auth copilot login`; verify GitHub's device flow, pending/slow-down handling, and owner-only credential storage. Run `auth copilot logout`; external token files must remain unchanged. Device login requests no repository scope.
+2. Verify file > `AIPROXY_COPILOT_TOKEN` > managed-login precedence, invalid explicit-file failure, token rotation, expiry, and secret-free `auth status`/`config show` output.
+3. Start with `--provider copilot` and a configured credential. `/v1/models` must list only account-discovered `copilot/` IDs. An explicit model list restricts this catalog. No hardcoded fallback is allowed.
+4. Run `python scripts/live-compatibility.py --provider copilot --model <discovered-id>` against the running proxy. Check both client APIs, streaming/non-streaming text, tool calls/results, token usage, and local Responses replay. Image/reasoning tests require advertised capabilities.
+5. Exercise upstream Chat Completions, Responses, and Messages using eligible account models. Offline fixtures cover all six client/upstream combinations. Record live coverage separately.
+6. Test `auto`, `both`, `all`, explicit lists, order overrides, disabled defaults, and duplicate names. `/v1/messages` must remain Anthropic-only.
+7. With a shared exact raw model ID, verify opt-in failover on connection/timeouts, 429, and 5xx. Verify no failover on auth/permission, invalid requests, qualification, replay, or committed output; no model substitution. Missing capability metadata must not imply support.
+8. Verify replay isolation between client keys and account credentials, missing/evicted references, process restart, and provider pinning after a catalog changes.
+9. Enterprise Cloud live checks are optional and do not block this release. Keep unverified status explicit; run offline cross-tenant and untrusted-endpoint tests. GHES is unsupported.
 
 ## 2. CLI and subcommands
 
@@ -68,7 +80,7 @@ Exercise `auto`, `codex`, `anthropic`, and `both` with every credential availabi
 
 Verify `--default-provider` changes only unqualified OpenAI-compatible models. `/v1/messages` must always use Anthropic.
 
-For each provider, test configured model overrides, successful discovery, warm cache, stale/last-good cache, and built-in fallback. Explicit model lists must prevent discovery from changing the exposed list. The banner shows count and one of `configured`, `discovered`, `cache`, or `fallback`; IDs appear only with `--verbose`.
+For each provider, test configured model restrictions, successful discovery, warm cache, stale/last-good cache, and any provider-specific fallback. Copilot never has a built-in model fallback. The banner shows count and source plus every known model ID. Provider summaries and model groups must follow the configured provider order.
 
 ## 6. URL normalization and validation
 

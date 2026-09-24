@@ -25,11 +25,14 @@ public final class AnthropicRequestTranslator {
     private static final Set<String> REASONING_EFFORTS =
             Set.of("low", "medium", "high", "max");
 
-    private final AnthropicCompatibilityProfile profile;
+    private final String systemPreamble;
 
     public AnthropicRequestTranslator(AnthropicCompatibilityProfile profile) {
-        this.profile = Objects.requireNonNull(profile, "profile");
+        this.systemPreamble = Objects.requireNonNull(profile, "profile").oauthSystemPreamble();
     }
+
+    /** Messages protocol without Anthropic OAuth identity injection (e.g. Copilot). */
+    public AnthropicRequestTranslator() { this.systemPreamble = null; }
 
     public ObjectNode translate(ChatRequest request) throws AnthropicTranslationException {
         Objects.requireNonNull(request, "request");
@@ -60,9 +63,7 @@ public final class AnthropicRequestTranslator {
 
     private ArrayNode systemBlocks(ChatRequest request) throws AnthropicTranslationException {
         ArrayNode system = Json.MAPPER.createArrayNode();
-        system.addObject()
-                .put("type", "text")
-                .put("text", profile.oauthSystemPreamble());
+        if (systemPreamble != null) system.addObject().put("type", "text").put("text", systemPreamble);
         for (ChatRequest.Message message : request.messages()) {
             if (message.role() != ChatRequest.Role.SYSTEM
                     && message.role() != ChatRequest.Role.DEVELOPER) {

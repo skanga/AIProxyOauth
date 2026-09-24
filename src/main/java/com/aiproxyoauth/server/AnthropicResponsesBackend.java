@@ -127,6 +127,7 @@ public final class AnthropicResponsesBackend implements ResponsesBackend {
         AccessLogFields.upstreamStatus(context, upstream.statusCode());
         try (InputStream input = upstream.body()) {
             if (upstream.statusCode() < 200 || upstream.statusCode() >= 300) {
+                if (Boolean.TRUE.equals(context.attribute("providerFailoverAttempt"))) throw new UpstreamFailure(upstream.statusCode());
                 writeError(context, AnthropicErrorParser.parse(
                         upstream.statusCode(), readBoundedError(input)));
                 return;
@@ -161,6 +162,7 @@ public final class AnthropicResponsesBackend implements ResponsesBackend {
         ObjectNode response = encoder.response();
         recordUsage(context, encoder);
         state.rememberResponse(response, expanded);
+        context.attribute("completedResponse", response);
         JsonHelper.toJsonResponse(context, response);
     }
 
@@ -177,11 +179,18 @@ public final class AnthropicResponsesBackend implements ResponsesBackend {
         ResponsesEventEncoder encoder = new ResponsesEventEncoder(requestedModel);
         ProviderError error = decode(input, decoder, encoder, output, context);
         if (error != null) {
-            writeStreamingError(context, output, error, encoder);
+            if (!context.res().isCommitted()) {
+                writeError(context, error);
+                return;
+            }
+            for (var event : encoder.accept(new CompletionEvent.Error(error))) {
+                writeStreamEvent(context, output, event.name(), event.data());
+            }
         } else if (encoder.isFinished()) {
             ObjectNode response = encoder.response();
             recordUsage(context, encoder);
             state.rememberResponse(response, expanded);
+            context.attribute("completedResponse", response);
         }
         output.flush();
     }
@@ -195,8 +204,14 @@ public final class AnthropicResponsesBackend implements ResponsesBackend {
     ) throws IOException {
         byte[] buffer = new byte[READ_BUFFER_BYTES];
         long total = 0;
-        int read;
-        while ((read = input.read(buffer)) != -1) {
+        while (true) {
+            int read;
+            try {
+                read = input.read(buffer);
+            } catch (IOException error) {
+                return ProviderError.of(ProviderError.Kind.PROTOCOL, "Anthropic response was interrupted");
+            }
+            if (read == -1) break;
             total += read;
             if (total > MAX_RESPONSE_BYTES) {
                 return ProviderError.of(ProviderError.Kind.PROTOCOL,
@@ -272,24 +287,6 @@ public final class AnthropicResponsesBackend implements ResponsesBackend {
         usageTracker.record(context.attribute("keyName"), usage.inputTokens(), usage.outputTokens());
     }
 
-    private void writeStreamingError(
-            Context context,
-            OutputStream output,
-            ProviderError error,
-            ResponsesEventEncoder encoder
-    ) throws IOException {
-        ObjectNode data = Json.MAPPER.createObjectNode();
-        ObjectNode response = data.putObject("response");
-        response.put("object", "response");
-        response.put("status", "failed");
-        if (encoder.isFinished()) response.setAll(encoder.response());
-        ObjectNode errorNode = response.putObject("error");
-        errorNode.put("type", errorType(error.kind()));
-        errorNode.put("code", error.kind().name().toLowerCase(java.util.Locale.ROOT));
-        errorNode.put("message", error.message());
-        writeStreamEvent(context, output, "response.failed", data);
-    }
-
     private void writeStreamEvent(
             Context context, OutputStream output, String eventName, ObjectNode data) throws IOException {
         String value = "event: " + eventName + "\ndata: "
@@ -331,15 +328,7 @@ public final class AnthropicResponsesBackend implements ResponsesBackend {
     }
 
     private ResponsesState replayStateFor(Context context) {
-        boolean admin = Boolean.TRUE.equals(context.attribute("isAdmin"));
-        String keyFingerprint = context.attribute("keyFingerprint");
-        String adminFingerprint = context.attribute("adminKeyFingerprint");
-        String keyName = context.attribute("keyName");
-        String namespace;
-        if (admin && adminFingerprint != null) namespace = "admin-fp:" + adminFingerprint;
-        else if (keyFingerprint != null) namespace = "key-fp:" + keyFingerprint;
-        else if (keyName != null) namespace = "key:" + keyName;
-        else namespace = admin ? "admin" : "open";
+        String namespace = ReplayNamespace.of(context);
         synchronized (replayStates) {
             return replayStates.computeIfAbsent(namespace, ignored -> new ResponsesState());
         }

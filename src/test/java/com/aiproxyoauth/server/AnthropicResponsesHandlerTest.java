@@ -67,7 +67,7 @@ class AnthropicResponsesHandlerTest {
         assertTrue(response.body().contains("Hello Responses"));
         assertTrue(response.body().contains("\"object\":\"response\""));
         assertTrue(response.body().contains("\"model\":\"anthropic/sonnet\""));
-        assertEquals(9, usage.snapshot().get(UsageTracker.OPEN_MODE_KEY).promptTokens());
+        assertEquals(11, usage.snapshot().get(UsageTracker.OPEN_MODE_KEY).promptTokens());
         assertEquals(3, usage.snapshot().get(UsageTracker.OPEN_MODE_KEY).completionTokens());
     }
 

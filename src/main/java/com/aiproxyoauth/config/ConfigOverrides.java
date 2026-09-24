@@ -8,8 +8,14 @@ public final class ConfigOverrides {
     public Integer port;
     public String provider;
     public String defaultProvider;
+    public String providerOrder;
+    public Boolean failover;
+    public String copilotGithubHost;
+    public String copilotOauthFile;
+    public String copilotOauthClientId;
+    public String copilotTokenFile;
+    public String copilotModels;
     public String startupCheck;
-    public Boolean verbose;
     public String clientKeysFile;
     public String adminClientKeyFile;
     public List<String> corsOrigins;
