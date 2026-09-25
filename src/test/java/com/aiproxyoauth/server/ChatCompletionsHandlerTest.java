@@ -3,8 +3,8 @@ package com.aiproxyoauth.server;
 import com.aiproxyoauth.config.ServerConfig;
 import com.aiproxyoauth.transport.CodexHttpClient;
 import com.aiproxyoauth.usage.UsageTracker;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import io.javalin.Javalin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -164,10 +164,10 @@ class ChatCompletionsHandlerTest {
 
         assertEquals(200, resp.statusCode());
         JsonNode body = MAPPER.readTree(resp.body());
-        assertEquals("chat.completion", body.path("object").asText());
+        assertEquals("chat.completion", body.path("object").asString());
         assertFalse(body.path("choices").get(0).path("message").path("content").isNull(),
                 "content should not be null");
-        assertEquals("Hello!", body.path("choices").get(0).path("message").path("content").asText());
+        assertEquals("Hello!", body.path("choices").get(0).path("message").path("content").asString());
     }
 
     @Test void nonStreaming_usesTextDeltaWhenCompletedResponseOmitsOutputText() throws Exception {
@@ -187,7 +187,7 @@ class ChatCompletionsHandlerTest {
 
         assertEquals(200, resp.statusCode());
         JsonNode body = MAPPER.readTree(resp.body());
-        assertEquals("Hello World!", body.path("choices").get(0).path("message").path("content").asText());
+        assertEquals("Hello World!", body.path("choices").get(0).path("message").path("content").asString());
     }
 
     @Test void systemMessage_becomesInstructions() throws Exception {
@@ -212,7 +212,7 @@ class ChatCompletionsHandlerTest {
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
         verify(client).request(anyString(), anyString(), bodyCaptor.capture(), any());
         JsonNode upstream = MAPPER.readTree(bodyCaptor.getValue());
-        assertEquals("You are helpful", upstream.path("instructions").asText());
+        assertEquals("You are helpful", upstream.path("instructions").asString());
     }
 
     @Test void maxTokens_notForwardedAsUnsupportedMaxOutputTokens() throws Exception {
@@ -279,7 +279,7 @@ class ChatCompletionsHandlerTest {
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
         verify(client).request(anyString(), anyString(), bodyCaptor.capture(), any());
         JsonNode upstream = MAPPER.readTree(bodyCaptor.getValue());
-        assertEquals("high", upstream.path("reasoning").path("effort").asText());
+        assertEquals("high", upstream.path("reasoning").path("effort").asString());
     }
 
     @Test void namedToolChoice_isTranslatedToResponsesShape() throws Exception {
@@ -298,8 +298,8 @@ class ChatCompletionsHandlerTest {
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
         verify(client).request(anyString(), anyString(), bodyCaptor.capture(), any());
         JsonNode choice = MAPPER.readTree(bodyCaptor.getValue()).path("tool_choice");
-        assertEquals("function", choice.path("type").asText());
-        assertEquals("lookup", choice.path("name").asText());
+        assertEquals("function", choice.path("type").asString());
+        assertEquals("lookup", choice.path("name").asString());
         assertFalse(choice.has("function"));
     }
 
@@ -314,8 +314,8 @@ class ChatCompletionsHandlerTest {
 
         assertEquals(400, resp.statusCode());
         JsonNode error = MAPPER.readTree(resp.body()).path("error");
-        assertEquals("invalid_request_error", error.path("type").asText());
-        assertEquals("tool_choice", error.path("param").asText());
+        assertEquals("invalid_request_error", error.path("type").asString());
+        assertEquals("tool_choice", error.path("param").asString());
         verifyNoInteractions(client);
     }
 
@@ -338,8 +338,8 @@ class ChatCompletionsHandlerTest {
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
         verify(client).request(anyString(), anyString(), bodyCaptor.capture(), any());
         JsonNode upstream = MAPPER.readTree(bodyCaptor.getValue());
-        assertEquals("gpt-5.3-codex-spark", upstream.path("model").asText());
-        assertEquals("xhigh", upstream.path("reasoning").path("effort").asText());
+        assertEquals("gpt-5.3-codex-spark", upstream.path("model").asString());
+        assertEquals("xhigh", upstream.path("reasoning").path("effort").asString());
     }
 
     @Test void functionCallInResponse_finishReasonIsToolCalls() throws Exception {
@@ -360,7 +360,7 @@ class ChatCompletionsHandlerTest {
         assertEquals(200, resp.statusCode());
         JsonNode body = MAPPER.readTree(resp.body());
         JsonNode choice = body.path("choices").get(0);
-        assertEquals("tool_calls", choice.path("finish_reason").asText());
+        assertEquals("tool_calls", choice.path("finish_reason").asString());
         assertTrue(choice.path("message").path("tool_calls").isArray());
         assertFalse(choice.path("message").path("tool_calls").isEmpty());
     }
@@ -382,7 +382,7 @@ class ChatCompletionsHandlerTest {
 
         assertEquals(200, resp.statusCode());
         JsonNode body = MAPPER.readTree(resp.body());
-        assertEquals("length", body.path("choices").get(0).path("finish_reason").asText());
+        assertEquals("length", body.path("choices").get(0).path("finish_reason").asString());
     }
 
     // --- Streaming ---
@@ -466,10 +466,10 @@ class ChatCompletionsHandlerTest {
                 """);
 
         JsonNode choice = MAPPER.readTree(resp.body()).path("choices").get(0);
-        assertEquals("tool_calls", choice.path("finish_reason").asText());
-        assertEquals("call_27", choice.path("message").path("tool_calls").get(0).path("id").asText());
+        assertEquals("tool_calls", choice.path("finish_reason").asString());
+        assertEquals("call_27", choice.path("message").path("tool_calls").get(0).path("id").asString());
         assertEquals("python-eval", choice.path("message").path("tool_calls").get(0)
-                .path("function").path("name").asText());
+                .path("function").path("name").asString());
     }
 
     @Test void nonStreaming_emptyOutcomeReturnsProtocolError() throws Exception {
@@ -486,8 +486,8 @@ class ChatCompletionsHandlerTest {
 
         assertEquals(502, resp.statusCode());
         JsonNode error = MAPPER.readTree(resp.body()).path("error");
-        assertEquals("upstream_protocol_error", error.path("type").asText());
-        assertEquals("empty_completion", error.path("code").asText());
+        assertEquals("upstream_protocol_error", error.path("type").asString());
+        assertEquals("empty_completion", error.path("code").asString());
     }
 
     @Test void streamTrue_completedFunctionCallIsReconciledBeforeFinish() throws Exception {
@@ -575,9 +575,9 @@ class ChatCompletionsHandlerTest {
 
         boolean found = false;
         for (JsonNode item : upstream.path("input")) {
-            if ("function_call_output".equals(item.path("type").asText())) {
-                assertEquals("call_abc", item.path("call_id").asText());
-                assertEquals("42", item.path("output").asText());
+            if ("function_call_output".equals(item.path("type").asString())) {
+                assertEquals("call_abc", item.path("call_id").asString());
+                assertEquals("42", item.path("output").asString());
                 found = true;
             }
         }
@@ -716,7 +716,7 @@ class ChatCompletionsHandlerTest {
         JsonNode content = upstream.path("input").get(0).path("content");
 
         assertEquals(2, content.size());
-        assertEquals("input_text", content.get(0).path("type").asText());
-        assertEquals("input_image", content.get(1).path("type").asText());
+        assertEquals("input_text", content.get(0).path("type").asString());
+        assertEquals("input_image", content.get(1).path("type").asString());
     }
 }

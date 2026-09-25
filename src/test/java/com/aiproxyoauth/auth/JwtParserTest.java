@@ -1,7 +1,7 @@
 package com.aiproxyoauth.auth;
 
 import com.aiproxyoauth.util.JwtParser;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -20,7 +20,7 @@ class JwtParserTest {
     @Test void validJwt_claimsReturned() {
         JsonNode claims = JwtParser.parseClaims(makeJwt("{\"sub\":\"user123\",\"exp\":9999999999}"));
         assertNotNull(claims);
-        assertEquals("user123", claims.path("sub").asText());
+        assertEquals("user123", claims.path("sub").asString());
     }
 
     @Test void nullToken_returnsNull() {

@@ -1,26 +1,35 @@
-AIProxyOauth 3.0.2
+AIProxyOauth 3.0.3
 ==================
 
-Patch release. Fixes the default GitHub Copilot OAuth app so new logins get
-the full model catalog. No wire-format changes.
+Patch release. Migrates to Jackson 3.2.2 and removes all deprecated API
+usage. No wire-format changes; no behavior changes.
 
-Copilot default OAuth app:
-- `copilot.oauth_client_id` now defaults to `Iv1.b507a08c87ecfe98` (the
-  ecosystem-standard Copilot device-flow app), which exposes the full Copilot
-  model catalog. The previous default (`01ab8ac9400c4e429b23`) minted tokens
-  under a restrictive integrator that only allowed a handful of models and
-  failed the Copilot startup inference check.
-- GitHub ties Copilot model access to the token's OAuth app ("integrator");
-  see README. Existing tokens keep working until the next `auth copilot login`;
-  re-login to adopt the new default. Override with
-  `AIPROXY_COPILOT_OAUTH_CLIENT_ID` / `copilot.oauth_client_id` as before.
+Jackson 2 -> 3 migration:
+- pom.xml now depends on `tools.jackson:jackson-databind`/`jackson-dataformat-yaml`
+  3.2.2 instead of the Jackson 2.x `com.fasterxml.jackson` artifacts.
+- `ObjectMapper.readTree(...)` no longer declares a checked `IOException`; it
+  throws the unchecked `tools.jackson.core.JacksonException` instead. Updated
+  every `catch (IOException)` block that wrapped a bare `readTree(...)` call
+  (and nothing else checked-exception-throwing) to catch `JacksonException`.
+- `ObjectNode.fieldNames()` was renamed to `propertyNames()` (and now returns
+  a `Collection<String>` instead of an `Iterator<String>`); updated the one
+  call site in `CopilotBackend`.
+- `JsonNode.deepCopy()` dropped its covariant self-type generic and now
+  always returns plain `JsonNode`; added explicit `(ObjectNode)` casts at the
+  two call sites in `SseCollector` that assign the result to `ObjectNode`,
+  matching the cast pattern already used elsewhere in the codebase.
+
+Deprecation cleanup:
+- Renamed all uses of the now-deprecated `JsonNode.asText()`, `asText(String)`,
+  and `isTextual()` to their replacements `asString()`, `asString(String)`,
+  and `isString()` across the full codebase (main and test sources). These
+  are behavior-identical renames -- the deprecated methods were pure
+  delegates to the new ones -- so this is a mechanical, non-functional change.
 
 Verification commands:
   mvn clean package
-  java -jar target/AIProxyOauth-3.0.2.jar --version
-  java -jar target/AIProxyOauth-3.0.2.jar auth copilot logout
-  java -jar target/AIProxyOauth-3.0.2.jar auth copilot login
-  java -jar target/AIProxyOauth-3.0.2.jar serve --provider copilot
+  java -jar target/AIProxyOauth-3.0.3.jar --version
+  java -jar target/AIProxyOauth-3.0.3.jar serve --startup-check off
 
-Confirm the Copilot startup banner lists the full model catalog and reports
-Check: OK. See MANUAL_TEST_PLAN.md for remaining account-specific checks.
+Confirm `mvn clean package` compiles with zero deprecation warnings and all
+tests pass (496 tests).

@@ -5,7 +5,7 @@ import com.aiproxyoauth.logging.RequestLogger;
 import com.aiproxyoauth.model.CodexInstructionsProvider;
 import com.aiproxyoauth.transport.CodexHttpClient;
 import com.aiproxyoauth.usage.UsageTracker;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.javalin.http.Context;
 import io.javalin.http.HandlerType;
 import org.junit.jupiter.api.io.TempDir;
@@ -129,10 +129,10 @@ class ResponsesHandlerTest {
         verify(client).request(eq("/responses"), eq("POST"), payload.capture(), any());
         JsonNode input = MAPPER.readTree(payload.getValue()).path("input");
         assertTrue(input.isArray());
-        assertEquals("message", input.get(0).path("type").asText());
-        assertEquals("user", input.get(0).path("role").asText());
-        assertEquals("input_text", input.get(0).path("content").get(0).path("type").asText());
-        assertEquals("Hello", input.get(0).path("content").get(0).path("text").asText());
+        assertEquals("message", input.get(0).path("type").asString());
+        assertEquals("user", input.get(0).path("role").asString());
+        assertEquals("input_text", input.get(0).path("content").get(0).path("type").asString());
+        assertEquals("Hello", input.get(0).path("content").get(0).path("text").asString());
     }
 
     @Test
@@ -344,7 +344,7 @@ class ResponsesHandlerTest {
         verify(client, times(2)).request(eq("/responses"), eq("POST"), bodyCaptor.capture(), any());
 
         JsonNode secondForwarded = MAPPER.readTree(bodyCaptor.getAllValues().get(1));
-        assertEquals("resp_1", secondForwarded.path("previous_response_id").asText());
+        assertEquals("resp_1", secondForwarded.path("previous_response_id").asString());
         assertTrue(secondForwarded.path("input").isArray());
         assertEquals(1, secondForwarded.path("input").size());
         assertFalse(secondForwarded.path("input").get(0).has("id"));
@@ -443,7 +443,7 @@ class ResponsesHandlerTest {
         verify(client, times(2)).request(eq("/responses"), eq("POST"), bodyCaptor.capture(), any());
 
         JsonNode secondForwarded = MAPPER.readTree(bodyCaptor.getAllValues().get(1));
-        assertEquals("resp_1", secondForwarded.path("previous_response_id").asText());
+        assertEquals("resp_1", secondForwarded.path("previous_response_id").asString());
         assertEquals(1, secondForwarded.path("input").size());
         assertFalse(secondForwarded.path("input").get(0).has("id"));
     }
@@ -514,7 +514,7 @@ class ResponsesHandlerTest {
         verify(client, times(514)).request(eq("/responses"), eq("POST"), bodyCaptor.capture(), any());
 
         JsonNode forwardedAfterEviction = MAPPER.readTree(bodyCaptor.getAllValues().get(513));
-        assertEquals("resp_shared", forwardedAfterEviction.path("previous_response_id").asText());
+        assertEquals("resp_shared", forwardedAfterEviction.path("previous_response_id").asString());
         assertEquals(0, forwardedAfterEviction.path("input").size());
     }
 }

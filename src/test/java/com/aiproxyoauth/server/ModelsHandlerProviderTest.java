@@ -4,7 +4,7 @@ import com.aiproxyoauth.model.ModelCatalog;
 import com.aiproxyoauth.provider.ProviderId;
 import com.aiproxyoauth.provider.ProviderModel;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.javalin.http.Context;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -37,8 +37,8 @@ class ModelsHandlerProviderTest {
         verify(context).status(200);
         verify(context).result(body.capture());
         JsonNode root = Json.MAPPER.readTree(body.getValue());
-        assertEquals("codex-oauth", root.path("data").get(0).path("owned_by").asText());
-        assertEquals("anthropic-oauth", root.path("data").get(1).path("owned_by").asText());
+        assertEquals("codex-oauth", root.path("data").get(0).path("owned_by").asString());
+        assertEquals("anthropic-oauth", root.path("data").get(1).path("owned_by").asString());
     }
 
     private static ProviderModel model(String id, ProviderId provider) {

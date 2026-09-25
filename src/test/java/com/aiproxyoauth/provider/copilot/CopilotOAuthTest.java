@@ -14,7 +14,7 @@ class CopilotOAuthTest {
         var token = CopilotOAuth.authorize("github.com", "client", (path, body) -> {
             assertFalse(body.has("scope")); return Json.MAPPER.readTree(results.remove());
         }, new PrintWriter(output), millis -> { waits.add(millis); time.addAndGet(millis * 1000000); }, time::get);
-        assertEquals("private-token", token.path("access_token").asText());
+        assertEquals("private-token", token.path("access_token").asString());
         assertEquals(List.of(5000L, 5000L, 10000L), waits);
         assertFalse(output.toString().contains("private-"));
     }

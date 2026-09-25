@@ -62,11 +62,11 @@ class CopilotBackendTest {
             String local = "http://127.0.0.1:" + app[0].port();
             var chat = post(http, local + "/v1/chat/completions", "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}", "a");
             assertEquals(200, chat.statusCode(), chat.body());
-            assertEquals("Hello", Json.MAPPER.readTree(chat.body()).at("/choices/0/message/content").asText());
+            assertEquals("Hello", Json.MAPPER.readTree(chat.body()).at("/choices/0/message/content").asString());
             assertEquals(4, Json.MAPPER.readTree(chat.body()).at("/usage/total_tokens").asInt());
             var response = post(http, local + "/v1/responses", "{\"input\":\"first\"}", "a");
             assertEquals(200, response.statusCode(), response.body());
-            String id = Json.MAPPER.readTree(response.body()).path("id").asText();
+            String id = Json.MAPPER.readTree(response.body()).path("id").asString();
             var replay = post(http, local + "/v1/responses", "{\"input\":\"second\",\"previous_response_id\":\"" + id + "\"}", "a");
             assertEquals(200, replay.statusCode(), replay.body());
             assertTrue(sent.get().contains("first")); assertTrue(sent.get().contains("Hello"));

@@ -2,8 +2,8 @@ package com.aiproxyoauth.provider.anthropic;
 
 import com.aiproxyoauth.provider.chat.ChatRequest;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -57,41 +57,41 @@ class AnthropicRequestTranslatorTest {
         JsonNode body = new AnthropicRequestTranslator(
                 AnthropicCompatibilityProfile.claudeCodeOAuth()).translate(request);
 
-        assertEquals("claude-sonnet-4-5", body.path("model").asText());
+        assertEquals("claude-sonnet-4-5", body.path("model").asString());
         assertEquals(4096, body.path("max_tokens").asInt());
         assertTrue(body.path("stream").asBoolean());
         assertEquals(0.25, body.path("temperature").asDouble());
         assertEquals(0.9, body.path("top_p").asDouble());
-        assertEquals("STOP", body.path("stop_sequences").get(0).asText());
-        assertEquals("adaptive", body.path("thinking").path("type").asText());
-        assertEquals("high", body.path("output_config").path("effort").asText());
+        assertEquals("STOP", body.path("stop_sequences").get(0).asString());
+        assertEquals("adaptive", body.path("thinking").path("type").asString());
+        assertEquals("high", body.path("output_config").path("effort").asString());
 
         assertEquals(3, body.path("system").size());
         assertEquals(
                 AnthropicCompatibilityProfile.claudeCodeOAuth().oauthSystemPreamble(),
-                body.path("system").get(0).path("text").asText()
+                body.path("system").get(0).path("text").asString()
         );
-        assertEquals("system", body.path("system").get(1).path("text").asText());
-        assertEquals("developer", body.path("system").get(2).path("text").asText());
+        assertEquals("system", body.path("system").get(1).path("text").asString());
+        assertEquals("developer", body.path("system").get(2).path("text").asString());
 
         JsonNode messages = body.path("messages");
         assertEquals(List.of("user", "assistant", "user"), List.of(
-                messages.get(0).path("role").asText(),
-                messages.get(1).path("role").asText(),
-                messages.get(2).path("role").asText()
+                messages.get(0).path("role").asString(),
+                messages.get(1).path("role").asString(),
+                messages.get(2).path("role").asString()
         ));
         assertEquals("base64", messages.get(0).path("content").get(1)
-                .path("source").path("type").asText());
-        assertEquals("thinking", messages.get(1).path("content").get(0).path("type").asText());
-        assertEquals("tool_use", messages.get(1).path("content").get(2).path("type").asText());
+                .path("source").path("type").asString());
+        assertEquals("thinking", messages.get(1).path("content").get(0).path("type").asString());
+        assertEquals("tool_use", messages.get(1).path("content").get(2).path("type").asString());
         assertEquals("README.md", messages.get(1).path("content").get(2)
-                .path("input").path("path").asText());
-        assertEquals("tool_result", messages.get(2).path("content").get(0).path("type").asText());
-        assertEquals("continue", messages.get(2).path("content").get(1).path("text").asText());
+                .path("input").path("path").asString());
+        assertEquals("tool_result", messages.get(2).path("content").get(0).path("type").asString());
+        assertEquals("continue", messages.get(2).path("content").get(1).path("text").asString());
 
-        assertEquals("read", body.path("tools").get(0).path("name").asText());
-        assertEquals("tool", body.path("tool_choice").path("type").asText());
-        assertEquals("read", body.path("tool_choice").path("name").asText());
+        assertEquals("read", body.path("tools").get(0).path("name").asString());
+        assertEquals("tool", body.path("tool_choice").path("type").asString());
+        assertEquals("read", body.path("tool_choice").path("name").asString());
     }
 
     @Test
@@ -185,7 +185,7 @@ class AnthropicRequestTranslatorTest {
         );
         JsonNode requiredBody = new AnthropicRequestTranslator(
                 AnthropicCompatibilityProfile.claudeCodeOAuth()).translate(required);
-        assertEquals("any", requiredBody.path("tool_choice").path("type").asText());
+        assertEquals("any", requiredBody.path("tool_choice").path("type").asString());
 
         ChatRequest invalid = new ChatRequest(
                 "claude",

@@ -27,7 +27,7 @@ class ProviderDispatchTest {
     @Test void doesNotAssumeImageCapabilityInFallbackCatalog() throws Exception {
         AtomicInteger fallback = new AtomicInteger();
         ChatBackend capable = new ChatBackend() {
-            public boolean supports(com.fasterxml.jackson.databind.JsonNode body, ModelRoute route, boolean responses) { return true; }
+            public boolean supports(tools.jackson.databind.JsonNode body, ModelRoute route, boolean responses) { return true; }
             public void handle(io.javalin.http.Context ctx, ModelRoute route) throws Exception { throw new UpstreamFailure(503); }
         };
         var handler = new ProviderDispatch(() -> List.of(model(ProviderId.COPILOT), model(ProviderId.CODEX)),

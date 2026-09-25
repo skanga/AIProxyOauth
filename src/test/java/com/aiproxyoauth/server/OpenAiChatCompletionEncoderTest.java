@@ -3,7 +3,7 @@ package com.aiproxyoauth.server;
 import com.aiproxyoauth.provider.stream.BlockType;
 import com.aiproxyoauth.provider.stream.CompletionEvent;
 import com.aiproxyoauth.provider.stream.FinishReason;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -27,11 +27,11 @@ class OpenAiChatCompletionEncoderTest {
         encoder.accept(new CompletionEvent.Finished(FinishReason.TOOL_CALLS));
 
         ObjectNode result = encoder.completion();
-        assertEquals("anthropic/claude-sonnet", result.path("model").asText());
-        assertEquals("Hello", result.at("/choices/0/message/content").asText());
-        assertEquals("tool_1", result.at("/choices/0/message/tool_calls/0/id").asText());
-        assertEquals("{\"q\":\"x\"}", result.at("/choices/0/message/tool_calls/0/function/arguments").asText());
-        assertEquals("tool_calls", result.at("/choices/0/finish_reason").asText());
+        assertEquals("anthropic/claude-sonnet", result.path("model").asString());
+        assertEquals("Hello", result.at("/choices/0/message/content").asString());
+        assertEquals("tool_1", result.at("/choices/0/message/tool_calls/0/id").asString());
+        assertEquals("{\"q\":\"x\"}", result.at("/choices/0/message/tool_calls/0/function/arguments").asString());
+        assertEquals("tool_calls", result.at("/choices/0/finish_reason").asString());
         assertEquals(12, result.at("/usage/prompt_tokens").asInt());
         assertEquals(16, result.at("/usage/total_tokens").asInt());
         assertEquals(3, result.at("/usage/prompt_tokens_details/cached_tokens").asInt());
@@ -42,14 +42,14 @@ class OpenAiChatCompletionEncoderTest {
         OpenAiChatCompletionEncoder encoder = new OpenAiChatCompletionEncoder("claude-sonnet");
         assertEquals("assistant", encoder.accept(
                 new CompletionEvent.Started("msg_2", "claude-upstream", 456))
-                .getFirst().at("/choices/0/delta/role").asText());
+                .getFirst().at("/choices/0/delta/role").asString());
         encoder.accept(new CompletionEvent.BlockStarted(3, BlockType.TOOL_CALL, "tool_2", "search"));
         List<ObjectNode> args = encoder.accept(new CompletionEvent.ToolCallArgumentsDelta(3, "{}"));
-        assertEquals("{}", args.getFirst().at("/choices/0/delta/tool_calls/0/function/arguments").asText());
+        assertEquals("{}", args.getFirst().at("/choices/0/delta/tool_calls/0/function/arguments").asString());
         encoder.accept(new CompletionEvent.UsageSnapshot(7, 2, 0, 1));
         List<ObjectNode> terminal = encoder.accept(new CompletionEvent.Finished(FinishReason.STOP));
         assertEquals(2, terminal.size());
-        assertEquals("tool_calls", terminal.getFirst().at("/choices/0/finish_reason").asText());
+        assertEquals("tool_calls", terminal.getFirst().at("/choices/0/finish_reason").asString());
         assertTrue(terminal.get(1).path("choices").isEmpty());
         assertTrue(encoder.accept(new CompletionEvent.Finished(FinishReason.STOP)).isEmpty());
     }

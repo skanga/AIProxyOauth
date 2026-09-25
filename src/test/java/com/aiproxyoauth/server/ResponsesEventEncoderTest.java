@@ -3,7 +3,7 @@ package com.aiproxyoauth.server;
 import com.aiproxyoauth.provider.stream.BlockType;
 import com.aiproxyoauth.provider.stream.CompletionEvent;
 import com.aiproxyoauth.provider.stream.FinishReason;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -29,11 +29,11 @@ class ResponsesEventEncoderTest {
         encoder.accept(new CompletionEvent.Finished(FinishReason.TOOL_CALLS));
 
         ObjectNode response = encoder.response();
-        assertEquals("completed", response.path("status").asText());
-        assertEquals("reasoning", response.at("/output/0/type").asText());
-        assertEquals("message", response.at("/output/1/type").asText());
-        assertEquals("function_call", response.at("/output/2/type").asText());
-        assertEquals("call_1", response.at("/output/2/call_id").asText());
+        assertEquals("completed", response.path("status").asString());
+        assertEquals("reasoning", response.at("/output/0/type").asString());
+        assertEquals("message", response.at("/output/1/type").asString());
+        assertEquals("function_call", response.at("/output/2/type").asString());
+        assertEquals("call_1", response.at("/output/2/call_id").asString());
         assertEquals(8, response.at("/usage/input_tokens").asInt());
         assertEquals(13, response.at("/usage/total_tokens").asInt());
         assertEquals(3, response.at("/usage/input_tokens_details/cached_tokens").asInt());
@@ -46,7 +46,7 @@ class ResponsesEventEncoderTest {
         ResponsesEventEncoder.StreamEvent created = encoder.accept(
                 new CompletionEvent.Started("msg_2", "claude", 101)).getFirst();
         assertEquals("response.created", created.name());
-        assertEquals("in_progress", created.data().at("/response/status").asText());
+        assertEquals("in_progress", created.data().at("/response/status").asString());
         assertEquals(List.of("response.output_item.added", "response.content_part.added"),
                 encoder.accept(new CompletionEvent.BlockStarted(0, BlockType.TEXT, null, null))
                         .stream().map(ResponsesEventEncoder.StreamEvent::name).toList());
@@ -58,7 +58,7 @@ class ResponsesEventEncoderTest {
         assertEquals(1, terminal.size());
         assertEquals("response.completed", terminal.getFirst().name());
         assertEquals("completed", terminal.getFirst().data()
-                .at("/response/status").asText());
+                .at("/response/status").asString());
         assertTrue(encoder.accept(new CompletionEvent.Finished(FinishReason.STOP)).isEmpty());
     }
 
@@ -70,7 +70,7 @@ class ResponsesEventEncoderTest {
                 new CompletionEvent.Finished(FinishReason.LENGTH));
         assertEquals("response.incomplete", terminal.getFirst().name());
         assertEquals("max_output_tokens",
-                encoder.response().at("/incomplete_details/reason").asText());
+                encoder.response().at("/incomplete_details/reason").asString());
     }
 
     @Test

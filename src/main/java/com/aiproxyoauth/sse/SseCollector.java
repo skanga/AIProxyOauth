@@ -1,8 +1,8 @@
 package com.aiproxyoauth.sse;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.aiproxyoauth.util.Json;
 
 import java.io.IOException;
@@ -40,9 +40,9 @@ public final class SseCollector {
 
                 // Only accept a successful terminal response (completed or incomplete) to avoid
                 // mistaking partial response objects in other event types for the final result.
-                String eventType = parsed.path("type").asText(event.event() != null ? event.event() : "");
+                String eventType = parsed.path("type").asString(event.event() != null ? event.event() : "");
                 if ("response.output_text.delta".equals(eventType)) {
-                    String delta = parsed.path("delta").asText("");
+                    String delta = parsed.path("delta").asString("");
                     if (!delta.isEmpty()) {
                         outputTextDeltas.append(delta);
                     }
@@ -52,7 +52,7 @@ public final class SseCollector {
                 if ("response.output_item.added".equals(eventType)
                         || "response.output_item.done".equals(eventType)) {
                     JsonNode item = parsed.get("item");
-                    if (item != null && "function_call".equals(item.path("type").asText())) {
+                    if (item != null && "function_call".equals(item.path("type").asString())) {
                         rememberFunctionCall(streamedFunctionCalls, streamedArguments,
                                 callIdsByItemId, item);
                     }
@@ -63,7 +63,7 @@ public final class SseCollector {
                     String callId = eventCallId(parsed, callIdsByItemId);
                     if (!callId.isBlank()) {
                         streamedArguments.computeIfAbsent(callId, ignored -> new StringBuilder())
-                                .append(parsed.path("delta").asText(""));
+                                .append(parsed.path("delta").asString(""));
                     }
                     continue;
                 }
@@ -71,7 +71,7 @@ public final class SseCollector {
                 if ("response.function_call_arguments.done".equals(eventType)) {
                     String callId = eventCallId(parsed, callIdsByItemId);
                     if (!callId.isBlank()) {
-                        String arguments = parsed.path("arguments").asText("");
+                        String arguments = parsed.path("arguments").asString("");
                         streamedArguments.put(callId, new StringBuilder(arguments));
                     }
                     continue;
@@ -103,20 +103,20 @@ public final class SseCollector {
     }
 
     private static String eventCallId(JsonNode event, Map<String, String> callIdsByItemId) {
-        String callId = event.path("call_id").asText("");
+        String callId = event.path("call_id").asString("");
         if (!callId.isBlank()) {
             return callId;
         }
-        return callIdsByItemId.getOrDefault(event.path("item_id").asText(""), "");
+        return callIdsByItemId.getOrDefault(event.path("item_id").asString(""), "");
     }
 
     private static void rememberFunctionCall(Map<String, ObjectNode> calls,
                                              Map<String, StringBuilder> arguments,
                                              Map<String, String> callIdsByItemId,
                                              JsonNode item) {
-        String callId = item.path("call_id").asText("");
+        String callId = item.path("call_id").asString("");
         if (callId.isBlank()) return;
-        String itemId = item.path("id").asText("");
+        String itemId = item.path("id").asString("");
         if (!itemId.isBlank()) callIdsByItemId.put(itemId, callId);
         ObjectNode call = calls.computeIfAbsent(callId, ignored -> {
             ObjectNode created = Json.MAPPER.createObjectNode();
@@ -124,8 +124,8 @@ public final class SseCollector {
             created.put("call_id", callId);
             return created;
         });
-        if (item.hasNonNull("name")) call.put("name", item.path("name").asText(""));
-        String itemArguments = item.path("arguments").asText("");
+        if (item.hasNonNull("name")) call.put("name", item.path("name").asString(""));
+        String itemArguments = item.path("arguments").asString("");
         if (!itemArguments.isEmpty()) arguments.put(callId, new StringBuilder(itemArguments));
         else arguments.computeIfAbsent(callId, ignored -> new StringBuilder());
     }
@@ -133,12 +133,12 @@ public final class SseCollector {
     private static JsonNode appendMissingFunctionCalls(JsonNode response,
                                                        Map<String, ObjectNode> calls,
                                                        Map<String, StringBuilder> arguments) {
-        ObjectNode copy = response.deepCopy();
+        ObjectNode copy = (ObjectNode) response.deepCopy();
         ArrayNode output = copy.withArray("output");
         java.util.Set<String> existing = new java.util.HashSet<>();
         for (JsonNode item : output) {
-            if ("function_call".equals(item.path("type").asText())) {
-                existing.add(item.path("call_id").asText(""));
+            if ("function_call".equals(item.path("type").asString())) {
+                existing.add(item.path("call_id").asString(""));
             }
         }
         for (Map.Entry<String, ObjectNode> entry : calls.entrySet()) {
@@ -161,7 +161,7 @@ public final class SseCollector {
                 continue;
             }
             for (JsonNode part : content) {
-                if ("output_text".equals(part.path("type").asText()) && part.hasNonNull("text")) {
+                if ("output_text".equals(part.path("type").asString()) && part.hasNonNull("text")) {
                     return true;
                 }
             }
@@ -170,7 +170,7 @@ public final class SseCollector {
     }
 
     private static JsonNode appendOutputText(JsonNode response, String text) {
-        ObjectNode copy = response.deepCopy();
+        ObjectNode copy = (ObjectNode) response.deepCopy();
         ArrayNode output;
         JsonNode existingOutput = copy.get("output");
         if (existingOutput != null && existingOutput.isArray()) {

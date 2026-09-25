@@ -2,12 +2,12 @@ package com.aiproxyoauth.provider.anthropic;
 
 import com.aiproxyoauth.provider.chat.ChatRequest;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
-import java.io.IOException;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
@@ -212,7 +212,7 @@ public final class AnthropicRequestTranslator {
             arguments = Json.MAPPER.reader()
                     .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                     .readTree(call.argumentsJson());
-        } catch (IOException error) {
+        } catch (JacksonException error) {
             throw invalid("Tool-call arguments must be valid JSON");
         }
         if (arguments == null || !arguments.isObject()) {
@@ -245,7 +245,7 @@ public final class AnthropicRequestTranslator {
             ArrayNode messages, String role, ArrayNode blocks) {
         if (!messages.isEmpty()) {
             ObjectNode previous = (ObjectNode) messages.get(messages.size() - 1);
-            if (role.equals(previous.path("role").asText())) {
+            if (role.equals(previous.path("role").asString())) {
                 ArrayNode previousContent = (ArrayNode) previous.path("content");
                 blocks.forEach(previousContent::add);
                 return;

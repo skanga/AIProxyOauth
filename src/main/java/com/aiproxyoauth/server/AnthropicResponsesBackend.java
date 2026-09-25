@@ -15,8 +15,9 @@ import com.aiproxyoauth.provider.stream.CompletionEvent;
 import com.aiproxyoauth.state.ResponsesState;
 import com.aiproxyoauth.usage.UsageTracker;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import io.javalin.http.Context;
 
 import java.io.ByteArrayOutputStream;
@@ -95,7 +96,7 @@ public final class AnthropicResponsesBackend implements ResponsesBackend {
         } catch (IllegalArgumentException error) {
             writeInvalid(context, error.getMessage(), null, "invalid_value");
             return;
-        } catch (IOException error) {
+        } catch (JacksonException error) {
             writeInvalid(context, "Request body must contain valid JSON", null, "invalid_json");
             return;
         }
@@ -253,7 +254,7 @@ public final class AnthropicResponsesBackend implements ResponsesBackend {
 
     private void validateStateFields(ObjectNode body) {
         JsonNode previous = body.get("previous_response_id");
-        if (previous != null && !previous.isNull() && !previous.isTextual()) {
+        if (previous != null && !previous.isNull() && !previous.isString()) {
             throw new IllegalArgumentException("`previous_response_id` must be a string");
         }
         JsonNode store = body.get("store");
@@ -265,13 +266,13 @@ public final class AnthropicResponsesBackend implements ResponsesBackend {
     private ObjectNode normalizeStringInput(ObjectNode body) {
         ObjectNode normalized = body.deepCopy();
         JsonNode input = normalized.get("input");
-        if (input == null || !input.isTextual()) return normalized;
+        if (input == null || !input.isString()) return normalized;
         ObjectNode message = Json.MAPPER.createObjectNode();
         message.put("type", "message");
         message.put("role", "user");
         ObjectNode content = Json.MAPPER.createObjectNode();
         content.put("type", "input_text");
-        content.put("text", input.asText());
+        content.put("text", input.asString());
         message.set("content", Json.MAPPER.createArrayNode().add(content));
         normalized.set("input", Json.MAPPER.createArrayNode().add(message));
         return normalized;

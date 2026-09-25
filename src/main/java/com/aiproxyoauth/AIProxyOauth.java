@@ -34,7 +34,7 @@ import com.aiproxyoauth.transport.CodexHttpClient;
 import com.aiproxyoauth.usage.UsageTracker;
 import com.aiproxyoauth.util.ApiKeyUtils;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -65,7 +65,7 @@ import java.util.function.Supplier;
         name = "aiproxy",
         description = "OAuth proxy exposing OpenAI-compatible and Anthropic-compatible APIs.",
         mixinStandardHelpOptions = true,
-        version = "AIProxyOauth 3.0.2",
+        version = "AIProxyOauth 3.0.3",
         subcommands = {
                 AIProxyOauth.ServeCommand.class,
                 AIProxyOauth.AuthCommand.class,
@@ -564,8 +564,8 @@ public class AIProxyOauth implements Callable<Integer> {
             if (content.isNull()) {
                 return "<null choices[0].message.content>";
             }
-            if (content.isTextual()) {
-                return formatStartupProbeText(content.asText());
+            if (content.isString()) {
+                return formatStartupProbeText(content.asString());
             }
             return formatStartupProbeText(Json.MAPPER.writeValueAsString(content));
         } catch (Exception e) {
@@ -600,8 +600,8 @@ public class AIProxyOauth implements Callable<Integer> {
                     }
                     if (content.isNull()) {
                         sawNullContent = true;
-                    } else if (content.isTextual()) {
-                        text.append(content.asText());
+                    } else if (content.isString()) {
+                        text.append(content.asString());
                     } else {
                         text.append(Json.MAPPER.writeValueAsString(content));
                     }
@@ -758,12 +758,12 @@ public class AIProxyOauth implements Callable<Integer> {
                 JsonNode root = Json.MAPPER.readTree(response.body());
                 // A well-formed 200 message proves the inference round-trip works even when the
                 // content is empty (e.g. a low max_tokens response that stops before emitting text).
-                boolean wellFormed = "message".equals(root.path("type").asText())
-                        || "assistant".equals(root.path("role").asText());
+                boolean wellFormed = "message".equals(root.path("type").asString())
+                        || "assistant".equals(root.path("role").asString());
                 String text = root.path("content").isArray() && !root.path("content").isEmpty()
-                        ? root.path("content").get(0).path("text").asText("") : "";
+                        ? root.path("content").get(0).path("text").asString("") : "";
                 String detail = !text.isBlank() ? formatStartupProbeText(text)
-                        : wellFormed ? "stop_reason=" + root.path("stop_reason").asText("unknown") : responseText;
+                        : wellFormed ? "stop_reason=" + root.path("stop_reason").asString("unknown") : responseText;
                 return new StartupProbeResult(wellFormed, response.statusCode(),
                         wellFormed ? "HTTP " + response.statusCode() : "HTTP " + response.statusCode() + ", unexpected response shape",
                         detail, model);

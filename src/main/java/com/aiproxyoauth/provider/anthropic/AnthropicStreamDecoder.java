@@ -6,7 +6,7 @@ import com.aiproxyoauth.provider.stream.CompletionEvent;
 import com.aiproxyoauth.provider.stream.CompletionStreamDecoder;
 import com.aiproxyoauth.provider.stream.FinishReason;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -151,12 +151,12 @@ public final class AnthropicStreamDecoder implements CompletionStreamDecoder {
         switch (type) {
             case "text" -> {
                 start(index, BlockType.TEXT, null, null, events);
-                if (!block.path("text").asText().isEmpty()) events.add(new CompletionEvent.TextDelta(index, block.path("text").asText()));
+                if (!block.path("text").asString().isEmpty()) events.add(new CompletionEvent.TextDelta(index, block.path("text").asString()));
             }
             case "thinking" -> {
                 start(index, BlockType.REASONING, null, null, events);
-                if (!block.path("thinking").asText().isEmpty()) events.add(new CompletionEvent.ReasoningDelta(index, block.path("thinking").asText()));
-                if (!block.path("signature").asText().isEmpty()) events.add(new CompletionEvent.ReasoningSignature(index, block.path("signature").asText()));
+                if (!block.path("thinking").asString().isEmpty()) events.add(new CompletionEvent.ReasoningDelta(index, block.path("thinking").asString()));
+                if (!block.path("signature").asString().isEmpty()) events.add(new CompletionEvent.ReasoningSignature(index, block.path("signature").asString()));
             }
             case "redacted_thinking" -> {
                 start(index, BlockType.REDACTED_REASONING, null, null, events);
@@ -245,8 +245,8 @@ public final class AnthropicStreamDecoder implements CompletionStreamDecoder {
             throws ProtocolViolation {
         requireStarted();
         JsonNode reason = root.path("delta").path("stop_reason");
-        if (reason.isTextual()) {
-            finishReason = mapFinishReason(reason.asText());
+        if (reason.isString()) {
+            finishReason = mapFinishReason(reason.asString());
         }
         addUsage(root.path("usage"), events);
     }
@@ -262,7 +262,7 @@ public final class AnthropicStreamDecoder implements CompletionStreamDecoder {
 
     private void upstreamError(JsonNode root, List<CompletionEvent> events) {
         JsonNode error = root.path("error");
-        String type = error.path("type").asText();
+        String type = error.path("type").asString();
         int status = switch (type) {
             case "authentication_error" -> 401;
             case "permission_error" -> 403;
@@ -351,10 +351,10 @@ public final class AnthropicStreamDecoder implements CompletionStreamDecoder {
     private static String requiredTextAllowEmpty(JsonNode node, String field)
             throws ProtocolViolation {
         JsonNode value = node.get(field);
-        if (value == null || !value.isTextual()) {
+        if (value == null || !value.isString()) {
             throw violation("Anthropic SSE event is missing " + field);
         }
-        return value.asText();
+        return value.asString();
     }
 
     private static FinishReason mapFinishReason(String reason) {

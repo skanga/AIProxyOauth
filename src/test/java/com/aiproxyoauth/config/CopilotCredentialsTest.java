@@ -15,7 +15,7 @@ class CopilotCredentialsTest {
         credentials.save(com.aiproxyoauth.util.Json.MAPPER.readTree("{\"access_token\":\"saved-secret\"}"));
         assertEquals("saved-secret", credentials.token());
         Path path = config(null, null).oauthFile();
-        var expired = (com.fasterxml.jackson.databind.node.ObjectNode) com.aiproxyoauth.util.Json.MAPPER.readTree(Files.readString(path));
+        var expired = (tools.jackson.databind.node.ObjectNode) com.aiproxyoauth.util.Json.MAPPER.readTree(Files.readString(path));
         expired.put("expires_at", "2020-01-01T00:00:00Z");
         Files.writeString(path, expired.toString());
         assertThrows(IOException.class, credentials::token);

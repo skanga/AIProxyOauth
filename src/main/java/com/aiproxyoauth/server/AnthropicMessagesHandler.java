@@ -14,8 +14,9 @@ import com.aiproxyoauth.provider.anthropic.AnthropicUsageObserver;
 import com.aiproxyoauth.provider.anthropic.auth.AnthropicAuthException;
 import com.aiproxyoauth.usage.UsageTracker;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import io.javalin.http.Context;
 import io.javalin.http.Handler;
 
@@ -101,7 +102,7 @@ public final class AnthropicMessagesHandler implements Handler {
                 return;
             }
             body = (ObjectNode) parsed;
-        } catch (IOException error) {
+        } catch (JacksonException error) {
             writeError(context, 400, "invalid_request_error",
                     "Request body must contain valid JSON");
             return;

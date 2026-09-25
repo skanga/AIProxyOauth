@@ -5,7 +5,7 @@ import java.time.Clock;
 import java.util.List;
 import java.util.*;
 import java.time.Instant;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import com.aiproxyoauth.provider.chat.ChatRequest;
 public final class CopilotModelCatalog implements ProviderModelCatalog {
     private static final List<String> ENDPOINTS = List.of("/chat/completions", "/responses", "/v1/messages");
@@ -31,13 +31,13 @@ public final class CopilotModelCatalog implements ProviderModelCatalog {
             Map<String, JsonNode> entries = new LinkedHashMap<>();
             List<ProviderModel> models = new ArrayList<>();
             for (JsonNode item : data) {
-                String id = item.path("id").asText();
-                if (id.isBlank() || !item.path("capabilities").path("type").asText("chat").equals("chat")) continue;
+                String id = item.path("id").asString();
+                if (id.isBlank() || !item.path("capabilities").path("type").asString("chat").equals("chat")) continue;
                 if (!allowlist.isEmpty() && !allowlist.contains(id)) continue;
                 if (endpoints(item).isEmpty()) continue;
                 entries.put(id, item.deepCopy());
                 JsonNode tools = item.path("capabilities").path("supports").path("tool_calls");
-                models.add(new ProviderModel(id, item.path("name").asText(id), ProviderId.COPILOT, List.of(),
+                models.add(new ProviderModel(id, item.path("name").asString(id), ProviderId.COPILOT, List.of(),
                         tools.isBoolean() ? Optional.of(tools.asBoolean()) : Optional.empty(),
                         Math.max(0, item.path("capabilities").path("limits").path("max_context_window_tokens").asInt())));
             }
@@ -52,7 +52,7 @@ public final class CopilotModelCatalog implements ProviderModelCatalog {
     private static List<String> endpoints(JsonNode item) {
         if (!item.has("supported_endpoints")) return List.of("/chat/completions"); // Verified legacy chat catalog.
         List<String> values = new ArrayList<>();
-        item.path("supported_endpoints").forEach(e -> { if (ENDPOINTS.contains(e.asText())) values.add(e.asText()); });
+        item.path("supported_endpoints").forEach(e -> { if (ENDPOINTS.contains(e.asString())) values.add(e.asString()); });
         return List.copyOf(values);
     }
     public synchronized String endpoint(String id, boolean responses) throws Exception {
@@ -85,7 +85,7 @@ public final class CopilotModelCatalog implements ProviderModelCatalog {
                 }
                 if (vision.path("supported_media_types").isArray()) {
                     boolean allowed = false;
-                    for (JsonNode type : vision.path("supported_media_types")) if (type.asText().equals(image.mediaType())) allowed = true;
+                    for (JsonNode type : vision.path("supported_media_types")) if (type.asString().equals(image.mediaType())) allowed = true;
                     if (!allowed) throw new IllegalArgumentException("Image media type is not supported by the selected Copilot model");
                 }
             }
@@ -96,7 +96,7 @@ public final class CopilotModelCatalog implements ProviderModelCatalog {
         if (request.reasoningEffort() != null) {
             JsonNode efforts = supports.path("reasoning_effort");
             boolean found = false;
-            for (JsonNode effort : efforts) if (effort.asText().equals(request.reasoningEffort())) found = true;
+            for (JsonNode effort : efforts) if (effort.asString().equals(request.reasoningEffort())) found = true;
             if (!found) throw new IllegalArgumentException("reasoning effort is not advertised by the selected Copilot model");
         }
         int maximum = model.path("capabilities").path("limits").path("max_output_tokens").asInt();

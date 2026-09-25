@@ -10,8 +10,8 @@ import com.aiproxyoauth.sse.SseParser;
 import com.aiproxyoauth.transport.CodexHttpClient;
 import com.aiproxyoauth.usage.UsageTracker;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import io.javalin.Javalin;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -44,14 +44,14 @@ class ProviderContractTest {
     void collectedAndStreamingChatAgreeOnTextUsageAndTermination(Backend backend) throws Exception {
         try (Fixture fixture = new Fixture(backend, Outcome.COMPLETE)) {
             JsonNode collected = json(fixture.post(false, false, null));
-            assertEquals("Hello", collected.at("/choices/0/message/content").asText());
-            assertEquals("stop", collected.at("/choices/0/finish_reason").asText());
+            assertEquals("Hello", collected.at("/choices/0/message/content").asString());
+            assertEquals("stop", collected.at("/choices/0/finish_reason").asString());
             assertUsage(collected.path("usage"), false);
             HttpResponse<String> streamed = fixture.post(false, true, null);
             assertEquals(200, streamed.statusCode(), streamed.body());
             List<JsonNode> chunks = events(streamed.body());
-            assertEquals("Hello", chunks.stream().map(n -> n.at("/choices/0/delta/content").asText("")).reduce("", String::concat));
-            assertEquals(1, chunks.stream().filter(n -> n.at("/choices/0/finish_reason").asText().equals("stop")).count());
+            assertEquals("Hello", chunks.stream().map(n -> n.at("/choices/0/delta/content").asString("")).reduce("", String::concat));
+            assertEquals(1, chunks.stream().filter(n -> n.at("/choices/0/finish_reason").asString().equals("stop")).count());
             assertEquals(1, occurrences(streamed.body(), "data: [DONE]"));
             assertUsage(chunks.stream().filter(n -> n.path("usage").isObject()).findFirst().orElseThrow().path("usage"), false);
             assertEquals(246, fixture.usage.snapshot().get(UsageTracker.OPEN_MODE_KEY).promptTokens());
@@ -62,12 +62,12 @@ class ProviderContractTest {
     void incompleteChatPreservesPartialOutputLengthAndUsageInBothModes(Backend backend) throws Exception {
         try (Fixture fixture = new Fixture(backend, Outcome.LENGTH)) {
             JsonNode collected = json(fixture.post(false, false, null));
-            assertEquals("Hello", collected.at("/choices/0/message/content").asText());
-            assertEquals("length", collected.at("/choices/0/finish_reason").asText());
+            assertEquals("Hello", collected.at("/choices/0/message/content").asString());
+            assertEquals("length", collected.at("/choices/0/finish_reason").asString());
             assertUsage(collected.path("usage"), false);
             var streamed = fixture.post(false, true, null);
             assertEquals(200, streamed.statusCode(), streamed.body());
-            assertTrue(events(streamed.body()).stream().anyMatch(n -> n.at("/choices/0/finish_reason").asText().equals("length")), streamed.body());
+            assertTrue(events(streamed.body()).stream().anyMatch(n -> n.at("/choices/0/finish_reason").asString().equals("length")), streamed.body());
             assertFalse(streamed.body().contains("\"finish_reason\":\"stop\""), streamed.body());
             assertEquals(1, occurrences(streamed.body(), "data: [DONE]"));
         }
@@ -77,7 +77,7 @@ class ProviderContractTest {
     void tokenLimitBeforeVisibleOutputIsStillAnIncompleteCompletion(Backend backend) throws Exception {
         try (Fixture fixture = new Fixture(backend, Outcome.EMPTY_LENGTH)) {
             JsonNode response = json(fixture.post(false, false, null));
-            assertEquals("length", response.at("/choices/0/finish_reason").asText());
+            assertEquals("length", response.at("/choices/0/finish_reason").asString());
             assertTrue(response.at("/choices/0/message/content").isNull());
             assertUsage(response.path("usage"), false);
         }
@@ -90,7 +90,7 @@ class ProviderContractTest {
             assertEquals(200, response.statusCode(), response.body());
             List<JsonNode> chunks = events(response.body());
             assertEquals(1, chunks.stream().filter(n -> n.path("error").isObject()).count(), response.body());
-            assertFalse(chunks.stream().anyMatch(n -> n.at("/choices/0/finish_reason").isTextual()), response.body());
+            assertFalse(chunks.stream().anyMatch(n -> n.at("/choices/0/finish_reason").isString()), response.body());
             assertEquals(1, occurrences(response.body(), "data: [DONE]"));
             assertTrue(response.body().stripTrailing().endsWith("data: [DONE]"), response.body());
         }
@@ -105,7 +105,7 @@ class ProviderContractTest {
             var streamed = fixture.post(false, true, null);
             assertEquals(200, streamed.statusCode(), streamed.body());
             assertTrue(events(streamed.body()).stream().anyMatch(n -> n.path("error").isObject()), streamed.body());
-            assertFalse(events(streamed.body()).stream().anyMatch(n -> n.at("/choices/0/finish_reason").isTextual()), streamed.body());
+            assertFalse(events(streamed.body()).stream().anyMatch(n -> n.at("/choices/0/finish_reason").isString()), streamed.body());
             assertEquals(1, occurrences(streamed.body(), "data: [DONE]"));
             assertTrue(fixture.usage.snapshot().isEmpty());
         }
@@ -117,12 +117,12 @@ class ProviderContractTest {
             var body = Json.MAPPER.createObjectNode();
             body.putArray("input").addObject().put("role", "user").put("content", "first");
             JsonNode response = json(fixture.post(true, false, body));
-            assertEquals("completed", response.path("status").asText());
-            assertEquals("Hello", response.at("/output/0/content/0/text").asText());
+            assertEquals("completed", response.path("status").asString());
+            assertEquals("Hello", response.at("/output/0/content/0/text").asString());
             assertUsage(response.path("usage"), true);
             JsonNode continued = json(fixture.post(true, false, Json.MAPPER.createObjectNode()
-                    .put("previous_response_id", response.path("id").asText()).put("input", "second")));
-            assertEquals("completed", continued.path("status").asText());
+                    .put("previous_response_id", response.path("id").asString()).put("input", "second")));
+            assertEquals("completed", continued.path("status").asString());
             assertTrue(fixture.sent.get().contains("first"));
             assertTrue(fixture.sent.get().contains("Hello"));
             assertTrue(fixture.sent.get().contains("second"));
@@ -133,12 +133,12 @@ class ProviderContractTest {
     void incompleteResponsesPreserveStatusAndUsage(Backend backend) throws Exception {
         try (Fixture fixture = new Fixture(backend, Outcome.LENGTH)) {
             JsonNode response = json(fixture.post(true, false, null));
-            assertEquals("incomplete", response.path("status").asText());
-            assertEquals("max_output_tokens", response.at("/incomplete_details/reason").asText());
+            assertEquals("incomplete", response.path("status").asString());
+            assertEquals("max_output_tokens", response.at("/incomplete_details/reason").asString());
             assertUsage(response.path("usage"), true);
             var streamed = fixture.post(true, true, null);
             assertEquals(200, streamed.statusCode(), streamed.body());
-            var terminal = events(streamed.body()).stream().filter(n -> n.path("type").asText().equals("response.incomplete")).toList();
+            var terminal = events(streamed.body()).stream().filter(n -> n.path("type").asString().equals("response.incomplete")).toList();
             assertEquals(1, terminal.size(), streamed.body());
             assertUsage(terminal.getFirst().at("/response/usage"), true);
             assertFalse(streamed.body().contains("[DONE]"));
@@ -156,15 +156,15 @@ class ProviderContractTest {
             var streamed = fixture.post(true, true, null);
             assertEquals(200, streamed.statusCode(), streamed.body());
             List<JsonNode> frames = events(streamed.body());
-            List<JsonNode> failures = frames.stream().filter(n -> n.path("type").asText().equals("response.failed")).toList();
+            List<JsonNode> failures = frames.stream().filter(n -> n.path("type").asString().equals("response.failed")).toList();
             assertEquals(1, failures.size(), streamed.body());
             JsonNode failure = failures.getFirst();
-            assertEquals("failed", failure.at("/response/status").asText());
-            assertTrue(failure.at("/response/error/message").isTextual());
-            assertEquals(frames.getFirst().at("/response/id").asText(), failure.at("/response/id").asText());
+            assertEquals("failed", failure.at("/response/status").asString());
+            assertTrue(failure.at("/response/error/message").isString());
+            assertEquals(frames.getFirst().at("/response/id").asString(), failure.at("/response/id").asString());
             long previous = -1;
             for (JsonNode frame : frames) {
-                assertTrue(frame.path("type").isTextual(), frame.toString());
+                assertTrue(frame.path("type").isString(), frame.toString());
                 assertTrue(frame.path("sequence_number").isIntegralNumber(), frame.toString());
                 assertTrue(frame.path("sequence_number").asLong() > previous, frame.toString());
                 previous = frame.path("sequence_number").asLong();
@@ -179,10 +179,10 @@ class ProviderContractTest {
     void refusalsRemainSeparateFromTextInBothChatModes(Backend backend) throws Exception {
         try (Fixture fixture = new Fixture(backend, Outcome.REFUSAL)) {
             JsonNode collected = json(fixture.post(false, false, null));
-            assertEquals("Declined", collected.at("/choices/0/message/refusal").asText());
+            assertEquals("Declined", collected.at("/choices/0/message/refusal").asString());
             assertTrue(collected.at("/choices/0/message/content").isNull());
             var streamed = fixture.post(false, true, null);
-            assertEquals("Declined", events(streamed.body()).stream().map(n -> n.at("/choices/0/delta/refusal").asText("")).reduce("", String::concat));
+            assertEquals("Declined", events(streamed.body()).stream().map(n -> n.at("/choices/0/delta/refusal").asString("")).reduce("", String::concat));
         }
     }
 
@@ -193,7 +193,7 @@ class ProviderContractTest {
             body.putArray("input").addObject().put("type", "reasoning").put("encrypted_content", "opaque-state").putArray("summary");
             var response = fixture.post(true, false, body);
             assertEquals(400, response.statusCode(), response.body());
-            assertTrue(Json.MAPPER.readTree(response.body()).at("/error/message").asText().contains("encrypted_content"), response.body());
+            assertTrue(Json.MAPPER.readTree(response.body()).at("/error/message").asString().contains("encrypted_content"), response.body());
             assertNull(fixture.sent.get());
         }
     }
@@ -210,9 +210,9 @@ class ProviderContractTest {
         var router = new ProviderRouter(models, ProviderId.COPILOT);
         var listed = Json.MAPPER.readTree(body.getValue()).path("data");
         for (int i = 0; i < models.size(); i++) {
-            assertEquals(models.get(i).provider(), router.route(listed.get(i).path("id").asText()).provider());
+            assertEquals(models.get(i).provider(), router.route(listed.get(i).path("id").asString()).provider());
         }
-        assertEquals("unique", listed.get(4).path("id").asText());
+        assertEquals("unique", listed.get(4).path("id").asString());
     }
 
     @Test

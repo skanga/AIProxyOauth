@@ -2,7 +2,7 @@ package com.aiproxyoauth.provider.anthropic;
 
 import com.aiproxyoauth.provider.ProviderError;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 public final class AnthropicErrorParser {
     private static final int MAX_MESSAGE_CHARACTERS = 1024;
@@ -28,8 +28,8 @@ public final class AnthropicErrorParser {
                     "Anthropic request failed"
             );
         }
-        ProviderError.Kind kind = kindForType(error.path("type").asText(), status);
-        String message = error.path("message").asText();
+        ProviderError.Kind kind = kindForType(error.path("type").asString(), status);
+        String message = error.path("message").asString();
         if (kind == ProviderError.Kind.AUTHENTICATION) {
             message = "Anthropic authentication failed";
         } else if (message.isBlank()) {

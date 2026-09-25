@@ -1,9 +1,9 @@
 package com.aiproxyoauth.server;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -36,14 +36,14 @@ public final class ResponsesRequestSanitizer {
                 continue;
             }
 
-            String type = item.path("type").asText("");
+            String type = item.path("type").asString("");
             if ("item_reference".equals(type)) {
                 continue;
             }
 
             ObjectNode copy = ((ObjectNode) item).deepCopy();
             copy.remove("id");
-            if (isToolOutput(type) && !validCallIds.contains(copy.path("call_id").asText(""))) {
+            if (isToolOutput(type) && !validCallIds.contains(copy.path("call_id").asString(""))) {
                 sanitizedInput.add(toAssistantMessage(copy));
             } else {
                 sanitizedInput.add(copy);
@@ -59,9 +59,9 @@ public final class ResponsesRequestSanitizer {
             if (!item.isObject()) {
                 continue;
             }
-            String type = item.path("type").asText("");
+            String type = item.path("type").asString("");
             if (isToolCall(type)) {
-                String callId = item.path("call_id").asText("");
+                String callId = item.path("call_id").asString("");
                 if (!callId.isBlank()) {
                     callIds.add(callId);
                 }
@@ -83,7 +83,7 @@ public final class ResponsesRequestSanitizer {
     }
 
     private ObjectNode toAssistantMessage(ObjectNode outputItem) {
-        String callId = outputItem.path("call_id").asText("");
+        String callId = outputItem.path("call_id").asString("");
         String output = extractOutputText(outputItem);
         boolean truncated = output.length() > MAX_CONVERTED_OUTPUT_CHARS;
         if (truncated) {
@@ -116,7 +116,7 @@ public final class ResponsesRequestSanitizer {
     }
 
     private void appendField(StringBuilder target, ObjectNode node, String fieldName) {
-        String value = node.path(fieldName).asText("");
+        String value = node.path(fieldName).asString("");
         if (value.isEmpty()) {
             return;
         }
@@ -127,13 +127,13 @@ public final class ResponsesRequestSanitizer {
     }
 
     private String nodeToText(JsonNode node) {
-        if (node.isTextual()) {
-            return node.asText();
+        if (node.isString()) {
+            return node.asString();
         }
         try {
             return MAPPER.writeValueAsString(node);
-        } catch (JsonProcessingException e) {
-            return node.asText("");
+        } catch (JacksonException e) {
+            return node.asString("");
         }
     }
 }

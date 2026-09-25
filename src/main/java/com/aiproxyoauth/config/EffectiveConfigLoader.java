@@ -3,10 +3,10 @@ package com.aiproxyoauth.config;
 import com.aiproxyoauth.provider.ProviderId;
 import com.aiproxyoauth.provider.anthropic.auth.AnthropicCredentialPaths;
 import com.aiproxyoauth.util.ApiKeyUtils;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.dataformat.yaml.YAMLMapper;
 
-import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -182,7 +182,7 @@ public final class EffectiveConfigLoader {
             Map<String, String> flat = new LinkedHashMap<>();
             flattenObject(root, "", flat);
             return flat;
-        } catch (IOException error) {
+        } catch (JacksonException error) {
             throw new ConfigException("Could not parse YAML configuration: " + error.getMessage(), error);
         }
     }
@@ -207,13 +207,13 @@ public final class EffectiveConfigLoader {
                 List<String> values = new ArrayList<>();
                 value.forEach(item -> {
                     if (!item.isValueNode()) throw new ConfigException("YAML list must contain scalar values: " + full);
-                    values.add(item.asText());
+                    values.add(item.asString());
                 });
                 flat.put(full, String.join(",", values));
             } else if (!value.isNull()) {
                 // YAML 1.1 parsers commonly treat the plain scalar `off` as boolean false.
                 flat.put(full, "startup.check".equals(full) && value.isBoolean() && !value.asBoolean()
-                        ? "off" : value.asText());
+                        ? "off" : value.asString());
             }
         });
     }

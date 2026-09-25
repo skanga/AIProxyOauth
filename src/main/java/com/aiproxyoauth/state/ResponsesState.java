@@ -1,8 +1,8 @@
 package com.aiproxyoauth.state;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.aiproxyoauth.util.Json;
 
 import java.util.LinkedHashMap;
@@ -36,15 +36,15 @@ public class ResponsesState {
     };
 
     public synchronized boolean requiresCachedState(JsonNode body) {
-        if (body.has("previous_response_id") && body.get("previous_response_id").isTextual()) {
+        if (body.has("previous_response_id") && body.get("previous_response_id").isString()) {
             return true;
         }
         JsonNode input = body.get("input");
         if (input != null && input.isArray()) {
             for (JsonNode item : input) {
                 if (item.isObject()
-                        && "item_reference".equals(item.path("type").asText(null))
-                        && item.has("id") && item.get("id").isTextual()) {
+                        && "item_reference".equals(item.path("type").asString(null))
+                        && item.has("id") && item.get("id").isString()) {
                     return true;
                 }
             }
@@ -56,8 +56,8 @@ public class ResponsesState {
         ObjectNode nextBody = body.deepCopy();
 
         String previousResponseId = null;
-        if (body.has("previous_response_id") && body.get("previous_response_id").isTextual()) {
-            previousResponseId = body.get("previous_response_id").asText();
+        if (body.has("previous_response_id") && body.get("previous_response_id").isString()) {
+            previousResponseId = body.get("previous_response_id").asString();
         }
 
         CachedResponse previousHistory = previousResponseId != null
@@ -91,8 +91,8 @@ public class ResponsesState {
             return;
         }
 
-        String responseId = response.has("id") && response.get("id").isTextual()
-                ? response.get("id").asText() : null;
+        String responseId = response.has("id") && response.get("id").isString()
+                ? response.get("id").asString() : null;
 
         JsonNode outputNode = response.get("output");
         ArrayNode output = Json.MAPPER.createArrayNode();
@@ -100,8 +100,8 @@ public class ResponsesState {
             for (JsonNode item : outputNode) {
                 if (item.isObject()) {
                     output.add(item.deepCopy());
-                    String itemId = item.has("id") && item.get("id").isTextual()
-                            ? item.get("id").asText() : null;
+                    String itemId = item.has("id") && item.get("id").isString()
+                            ? item.get("id").asString() : null;
                     if (itemId != null) {
                         items.remove(itemId);
                         items.put(itemId, item.deepCopy());
@@ -128,9 +128,9 @@ public class ResponsesState {
         ArrayNode expanded = Json.MAPPER.createArrayNode();
         for (JsonNode item : input) {
             if (item.isObject()
-                    && "item_reference".equals(item.path("type").asText(null))
-                    && item.has("id") && item.get("id").isTextual()) {
-                String id = item.get("id").asText();
+                    && "item_reference".equals(item.path("type").asString(null))
+                    && item.has("id") && item.get("id").isString()) {
+                String id = item.get("id").asString();
                 JsonNode cached = items.get(id);
                 if (cached != null) {
                     expanded.add(cached.deepCopy());

@@ -1,7 +1,7 @@
 package com.aiproxyoauth.server;
 
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.aiproxyoauth.usage.UsageTracker;
 import io.javalin.http.Context;
 import io.javalin.http.Handler;

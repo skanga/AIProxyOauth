@@ -1,8 +1,8 @@
 package com.aiproxyoauth.state;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.aiproxyoauth.util.Json;
 import org.junit.jupiter.api.Test;
 
@@ -72,8 +72,8 @@ class ResponsesStateTest {
         JsonNode expandedInput = expanded.get("input");
         assertEquals(1, expandedInput.size());
         // item_reference replaced with the full cached item
-        assertEquals("message", expandedInput.get(0).path("type").asText());
-        assertEquals("assistant", expandedInput.get(0).path("role").asText());
+        assertEquals("message", expandedInput.get(0).path("type").asString());
+        assertEquals("assistant", expandedInput.get(0).path("role").asString());
     }
 
     @Test
@@ -93,8 +93,8 @@ class ResponsesStateTest {
         // Unknown reference left as-is (not dropped, not expanded)
         JsonNode expandedInput = expanded.get("input");
         assertEquals(1, expandedInput.size());
-        assertEquals("item_reference", expandedInput.get(0).path("type").asText());
-        assertEquals("no-such-item", expandedInput.get(0).path("id").asText());
+        assertEquals("item_reference", expandedInput.get(0).path("type").asString());
+        assertEquals("no-such-item", expandedInput.get(0).path("id").asString());
     }
 
     @Test
@@ -133,10 +133,10 @@ class ResponsesStateTest {
 
         JsonNode expandedInput = expanded.get("input");
         assertEquals(3, expandedInput.size());
-        assertEquals("user", expandedInput.get(0).path("role").asText());   // regular1 unchanged
-        assertEquals("message", expandedInput.get(1).path("type").asText()); // ref expanded to cached item
+        assertEquals("user", expandedInput.get(0).path("role").asString());   // regular1 unchanged
+        assertEquals("message", expandedInput.get(1).path("type").asString()); // ref expanded to cached item
         assertFalse(expandedInput.get(1).has("role"));                        // cached item has no role
-        assertEquals("user", expandedInput.get(2).path("role").asText());   // regular2 unchanged
+        assertEquals("user", expandedInput.get(2).path("role").asString());   // regular2 unchanged
     }
 
     @Test

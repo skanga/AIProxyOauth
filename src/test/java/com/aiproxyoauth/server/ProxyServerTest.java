@@ -175,7 +175,7 @@ class ProxyServerTest {
             ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
             verify(client).request(eq("/responses"), eq("POST"), body.capture(), any());
             assertEquals("gpt-5.6-sol",
-                    com.aiproxyoauth.util.Json.MAPPER.readTree(body.getValue()).path("model").asText());
+                    com.aiproxyoauth.util.Json.MAPPER.readTree(body.getValue()).path("model").asString());
             assertEquals(400, response.statusCode());
         } finally {
             server.getApp().stop();
@@ -207,7 +207,7 @@ class ProxyServerTest {
             ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
             verify(client).request(eq("/responses"), eq("POST"), body.capture(), any());
             assertEquals("gpt-5.6-sol",
-                    com.aiproxyoauth.util.Json.MAPPER.readTree(body.getValue()).path("model").asText());
+                    com.aiproxyoauth.util.Json.MAPPER.readTree(body.getValue()).path("model").asString());
             assertEquals(400, response.statusCode());
         } finally {
             server.getApp().stop();

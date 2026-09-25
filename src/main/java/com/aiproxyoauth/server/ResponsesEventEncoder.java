@@ -5,9 +5,9 @@ import com.aiproxyoauth.provider.stream.CompletionEvent;
 import com.aiproxyoauth.provider.stream.FinishReason;
 import com.aiproxyoauth.provider.ProviderError;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

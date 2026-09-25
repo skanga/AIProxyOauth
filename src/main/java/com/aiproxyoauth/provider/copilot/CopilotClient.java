@@ -3,7 +3,7 @@ import com.aiproxyoauth.config.EffectiveConfig;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Clock;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import com.aiproxyoauth.transport.BoundedBodyReader;
 import com.aiproxyoauth.util.Json;
 import java.net.http.*;
@@ -50,7 +50,7 @@ public final class CopilotClient implements AutoCloseable {
         byte[] bytes = BoundedBodyReader.read(response, 1024 * 1024);
         if (response.statusCode() != 200) throw new IOException("Copilot endpoint discovery returned HTTP " + response.statusCode());
         JsonNode root = parse(bytes);
-        base = validateEndpoint(root.path("endpoints").path("api").asText());
+        base = validateEndpoint(root.path("endpoints").path("api").asString());
         identity = current; expires = clock.instant().plusSeconds(1800);
         return base;
     }

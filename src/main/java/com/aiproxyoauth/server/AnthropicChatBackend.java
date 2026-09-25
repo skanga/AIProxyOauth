@@ -14,8 +14,8 @@ import com.aiproxyoauth.provider.chat.ChatRequest;
 import com.aiproxyoauth.provider.stream.CompletionEvent;
 import com.aiproxyoauth.usage.UsageTracker;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import io.javalin.http.Context;
 
 import java.io.ByteArrayOutputStream;

@@ -1,7 +1,7 @@
 package com.aiproxyoauth.provider.copilot;
 import com.aiproxyoauth.provider.chat.ChatRequest;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ArrayNode;
 import com.aiproxyoauth.util.Json;
 import com.aiproxyoauth.provider.anthropic.AnthropicRequestTranslator;
 import java.util.Base64;

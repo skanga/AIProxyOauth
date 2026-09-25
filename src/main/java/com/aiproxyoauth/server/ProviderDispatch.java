@@ -4,7 +4,7 @@ import com.aiproxyoauth.provider.*;
 import io.javalin.http.*;
 import java.util.*;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import java.net.ConnectException;
 import java.net.http.HttpTimeoutException;
 public final class ProviderDispatch implements Handler {
@@ -27,7 +27,7 @@ public final class ProviderDispatch implements Handler {
         try { body = Json.MAPPER.readTree(context.body()); }
         catch (Exception error) { JsonHelper.toErrorResponse(context, "Request body must contain valid JSON."); return; }
         if (body == null || !body.isObject()) { JsonHelper.toErrorResponse(context, "Request body must be a JSON object."); return; }
-        String requested = body.path("model").asText(fallbackModel);
+        String requested = body.path("model").asString(fallbackModel);
         List<ModelRoute> routes;
         try {
             List<ProviderModel> models = catalog.resolveModels();
@@ -83,8 +83,8 @@ public final class ProviderDispatch implements Handler {
                 backend.handle(context, route);
                 JsonNode completed = context.attribute("completedResponse");
                 if (completed != null) {
-                    replayRoutes.put(namespace(context) + completed.path("id").asText(), route);
-                    for (JsonNode item : completed.path("output")) if (item.hasNonNull("id")) replayRoutes.put(namespace(context) + item.path("id").asText(), route);
+                    replayRoutes.put(namespace(context) + completed.path("id").asString(), route);
+                    for (JsonNode item : completed.path("output")) if (item.hasNonNull("id")) replayRoutes.put(namespace(context) + item.path("id").asString(), route);
                 }
                 return;
             } catch (UpstreamFailure | ConnectException | HttpTimeoutException error) {
@@ -98,8 +98,8 @@ public final class ProviderDispatch implements Handler {
     }
     private static List<String> references(JsonNode body) {
         List<String> refs = new ArrayList<>();
-        if (body.hasNonNull("previous_response_id")) refs.add(body.path("previous_response_id").asText());
-        for (JsonNode item : body.path("input")) if (item.path("type").asText().equals("item_reference")) refs.add(item.path("id").asText());
+        if (body.hasNonNull("previous_response_id")) refs.add(body.path("previous_response_id").asString());
+        for (JsonNode item : body.path("input")) if (item.path("type").asString().equals("item_reference")) refs.add(item.path("id").asString());
         return refs;
     }
     private static String namespace(Context context) {

@@ -3,9 +3,9 @@ package com.aiproxyoauth.provider.copilot;
 import com.aiproxyoauth.config.EffectiveConfig;
 import java.io.IOException;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.core.json.JsonReadFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import tools.jackson.core.json.JsonReadFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import java.nio.file.*;
 import java.nio.file.attribute.*;
 import java.time.Instant;
@@ -33,12 +33,12 @@ public final class CopilotCredentials {
     private static String managedToken(JsonNode root) throws IOException {
         if (root.hasNonNull("expires_at")) {
             try {
-                if (!Instant.parse(root.path("expires_at").asText()).isAfter(Instant.now().plusSeconds(30))) {
+                if (!Instant.parse(root.path("expires_at").asString()).isAfter(Instant.now().plusSeconds(30))) {
                     throw new IOException("Copilot login expired; run auth copilot login again");
                 }
             } catch (java.time.format.DateTimeParseException error) { throw new IOException("Invalid Copilot expiration"); }
         }
-        return validate(root.path("access_token").asText());
+        return validate(root.path("access_token").asString());
     }
     private String externalToken(Path path) throws IOException {
         String text = read(path).strip();
@@ -49,13 +49,13 @@ public final class CopilotCredentials {
             return managedToken(root);
         }
         JsonNode account = root.path("lastLoggedInUser");
-        String host = account.path("host").asText();
+        String host = account.path("host").asString();
         if (!host.equals("https://" + config.githubHost())) throw new IOException("Copilot credential host mismatch");
-        return validate(root.path("authTokens").path(host + ":" + account.path("login").asText()).path("token").asText());
+        return validate(root.path("authTokens").path(host + ":" + account.path("login").asString()).path("token").asString());
     }
     private void requireManaged(JsonNode root) throws IOException {
-        if (root.path("version").asInt() != 1 || !root.path("provider").asText().equals("copilot")
-                || !root.path("github_host").asText().equals(config.githubHost())) {
+        if (root.path("version").asInt() != 1 || !root.path("provider").asString().equals("copilot")
+                || !root.path("github_host").asString().equals(config.githubHost())) {
             throw new IOException("Invalid or mismatched proxy-managed Copilot credential file");
         }
     }
@@ -80,7 +80,7 @@ public final class CopilotCredentials {
         return token;
     }
     public synchronized void save(JsonNode response) throws IOException {
-        String token = validate(response.path("access_token").asText());
+        String token = validate(response.path("access_token").asString());
         Path path = config.oauthFile().toAbsolutePath().normalize();
         Files.createDirectories(path.getParent());
         if (Files.exists(path)) requireManaged(readJson(read(path)));

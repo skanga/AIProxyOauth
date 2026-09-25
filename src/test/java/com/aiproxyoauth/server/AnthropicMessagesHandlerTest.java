@@ -10,7 +10,7 @@ import com.aiproxyoauth.provider.anthropic.AnthropicRequestOptions;
 import com.aiproxyoauth.provider.anthropic.auth.AnthropicAuthException;
 import com.aiproxyoauth.usage.UsageTracker;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.javalin.Javalin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -117,9 +117,9 @@ class AnthropicMessagesHandlerTest {
         HttpResponse<String> response = post(false, null, null);
 
         assertEquals(400, response.statusCode());
-        assertEquals("error", Json.MAPPER.readTree(response.body()).path("type").asText());
+        assertEquals("error", Json.MAPPER.readTree(response.body()).path("type").asString());
         assertEquals("invalid_request_error", Json.MAPPER.readTree(response.body())
-                .path("error").path("type").asText());
+                .path("error").path("type").asString());
         org.mockito.Mockito.verifyNoInteractions(fixture.client());
     }
 
@@ -133,8 +133,8 @@ class AnthropicMessagesHandlerTest {
 
         assertEquals(502, response.statusCode());
         JsonNode error = Json.MAPPER.readTree(response.body());
-        assertEquals("error", error.path("type").asText());
-        assertEquals("api_error", error.path("error").path("type").asText());
+        assertEquals("error", error.path("type").asString());
+        assertEquals("api_error", error.path("error").path("type").asString());
         assertFalse(response.body().contains("offline"));
     }
 
@@ -151,8 +151,8 @@ class AnthropicMessagesHandlerTest {
 
         assertEquals(401, response.statusCode());
         JsonNode error = Json.MAPPER.readTree(response.body());
-        assertEquals("error", error.path("type").asText());
-        assertEquals("authentication_error", error.path("error").path("type").asText());
+        assertEquals("error", error.path("type").asString());
+        assertEquals("authentication_error", error.path("error").path("type").asString());
         assertFalse(response.body().contains("temporarily unavailable"));
         assertTrue(response.body().contains("auth anthropic login"));
     }

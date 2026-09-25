@@ -1,7 +1,7 @@
 package com.aiproxyoauth.provider.stream;
 
 import com.aiproxyoauth.provider.ProviderError;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -33,7 +33,7 @@ class CompletionEventTest {
 
         payload.put("data", "mutated");
 
-        assertEquals("opaque", event.data().path("data").asText());
+        assertEquals("opaque", event.data().path("data").asString());
     }
 
     @Test

@@ -1,7 +1,7 @@
 package com.aiproxyoauth.model;
 
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -112,11 +112,11 @@ class CodexInstructionsProviderTest {
         Path cacheFile = tempDir.resolve("gpt-5.2-codex.json");
         assertTrue(Files.exists(cacheFile));
         JsonNode cached = Json.MAPPER.readTree(Files.readString(cacheFile));
-        assertEquals("gpt-5.2-codex", cached.path("modelFamily").asText());
-        assertEquals("https://chatgpt.com/backend-api/codex/instructions/gpt-5.2-codex", cached.path("sourceUrl").asText());
-        assertEquals("\"etag-value\"", cached.path("etag").asText());
-        assertEquals("2026-05-10T12:00:00Z", cached.path("fetchedAt").asText());
-        assertEquals("remote instructions", cached.path("instructions").asText());
+        assertEquals("gpt-5.2-codex", cached.path("modelFamily").asString());
+        assertEquals("https://chatgpt.com/backend-api/codex/instructions/gpt-5.2-codex", cached.path("sourceUrl").asString());
+        assertEquals("\"etag-value\"", cached.path("etag").asString());
+        assertEquals("2026-05-10T12:00:00Z", cached.path("fetchedAt").asString());
+        assertEquals("remote instructions", cached.path("instructions").asString());
     }
 
     @Test void staleCacheUsesConditionalRequestWhenEtagExists() {

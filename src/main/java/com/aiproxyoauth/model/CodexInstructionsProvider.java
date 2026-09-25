@@ -1,8 +1,8 @@
 package com.aiproxyoauth.model;
 
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.net.URI;
@@ -142,11 +142,11 @@ public final class CodexInstructionsProvider {
         try {
             JsonNode node = Json.MAPPER.readTree(Files.readString(cacheFile));
             CacheEntry loaded = new CacheEntry(
-                    node.path("modelFamily").asText(modelFamily),
-                    node.path("sourceUrl").asText(sourceUri(modelFamily).toString()),
+                    node.path("modelFamily").asString(modelFamily),
+                    node.path("sourceUrl").asString(sourceUri(modelFamily).toString()),
                     textOrNull(node.get("etag")),
                     parseInstant(node),
-                    node.path("instructions").asText(""));
+                    node.path("instructions").asString(""));
             memoryCache.put(modelFamily, loaded);
             return loaded;
         } catch (Exception ignored) {
@@ -189,8 +189,8 @@ public final class CodexInstructionsProvider {
         try {
             JsonNode parsed = Json.MAPPER.readTree(body);
             JsonNode instructions = parsed.get("instructions");
-            if (instructions != null && instructions.isTextual()) {
-                return instructions.asText();
+            if (instructions != null && instructions.isString()) {
+                return instructions.asString();
             }
         } catch (Exception ignored) {
         }
@@ -210,13 +210,13 @@ public final class CodexInstructionsProvider {
     }
 
     private static String textOrNull(JsonNode node) {
-        return node != null && node.isTextual() ? node.asText() : null;
+        return node != null && node.isString() ? node.asString() : null;
     }
 
     private static Instant parseInstant(JsonNode node) {
-        String fetchedAt = node.path("fetchedAt").asText(null);
+        String fetchedAt = node.path("fetchedAt").asString(null);
         if (fetchedAt == null || fetchedAt.isBlank()) {
-            fetchedAt = node.path("timestamp").asText(null);
+            fetchedAt = node.path("timestamp").asString(null);
         }
         if (fetchedAt != null && !fetchedAt.isBlank()) {
             return Instant.parse(fetchedAt);

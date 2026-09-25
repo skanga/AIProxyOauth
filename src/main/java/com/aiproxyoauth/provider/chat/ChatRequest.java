@@ -1,6 +1,6 @@
 package com.aiproxyoauth.provider.chat;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 import java.util.List;
 import java.util.Objects;

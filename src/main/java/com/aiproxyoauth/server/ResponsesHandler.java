@@ -1,8 +1,8 @@
 package com.aiproxyoauth.server;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.aiproxyoauth.config.ServerConfig;
 import com.aiproxyoauth.logging.RequestLogger;
 import com.aiproxyoauth.model.CodexInstructionsProvider;
@@ -90,7 +90,7 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
         }
 
         JsonNode inputNode = body.get("input");
-        if (inputNode != null && !inputNode.isTextual() && !inputNode.isArray()) {
+        if (inputNode != null && !inputNode.isString() && !inputNode.isArray()) {
             JsonHelper.toErrorResponse(ctx, "`input` must be a string or an array.", 400,
                     "invalid_request_error", "input", "invalid_type");
             return;
@@ -110,7 +110,7 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
         ObjectNode normalized = requestSanitizer.sanitize(
                 normalizeBody(expanded, route), config.store());
         String promptCacheKey = config.forwardPromptCacheHeaders()
-                ? normalized.path("prompt_cache_key").asText(null)
+                ? normalized.path("prompt_cache_key").asString(null)
                 : null;
 
         // Forward to upstream
@@ -165,7 +165,7 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
     private ObjectNode normalizeBody(ObjectNode body, ModelRoute route) {
         ObjectNode normalized = body.deepCopy();
         normalized.put("stream", true);
-        String requestedModel = normalized.path("model").asText(ServerConfig.DEFAULT_MODEL);
+        String requestedModel = normalized.path("model").asString(ServerConfig.DEFAULT_MODEL);
         ModelAliasResolver.ResolvedModel resolvedModel = modelAliasResolver.resolve(requestedModel);
         if (route != null) {
             normalized.put("model", route.upstreamModel());
@@ -173,8 +173,8 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
             normalized.put("model", resolvedModel.model());
         }
 
-        if (!normalized.has("instructions") || !normalized.get("instructions").isTextual()) {
-            normalized.put("instructions", instructionsProvider.instructionsForModel(normalized.path("model").asText()));
+        if (!normalized.has("instructions") || !normalized.get("instructions").isString()) {
+            normalized.put("instructions", instructionsProvider.instructionsForModel(normalized.path("model").asString()));
         }
 
         if (!normalized.has("store")) {
@@ -186,8 +186,8 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
         ObjectNode reasoning = reasoningNode != null && reasoningNode.isObject()
                 ? ((ObjectNode) reasoningNode).deepCopy()
                 : MAPPER.createObjectNode();
-        String requestedEffort = reasoning.path("effort").asText(aliasEffort);
-        String clampedEffort = modelAliasResolver.clampReasoningEffort(normalized.path("model").asText(), requestedEffort);
+        String requestedEffort = reasoning.path("effort").asString(aliasEffort);
+        String clampedEffort = modelAliasResolver.clampReasoningEffort(normalized.path("model").asString(), requestedEffort);
         if (clampedEffort != null) {
             reasoning.put("effort", clampedEffort);
             normalized.set("reasoning", reasoning);
@@ -199,7 +199,7 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
     private ObjectNode normalizeInput(ObjectNode body) {
         ObjectNode normalized = body.deepCopy();
         JsonNode input = normalized.get("input");
-        if (input == null || !input.isTextual()) {
+        if (input == null || !input.isString()) {
             return normalized;
         }
 
@@ -208,7 +208,7 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
         message.put("role", "user");
         ObjectNode text = MAPPER.createObjectNode();
         text.put("type", "input_text");
-        text.put("text", input.asText());
+        text.put("text", input.asString());
         ArrayNode content = MAPPER.createArrayNode().add(text);
         message.set("content", content);
         normalized.set("input", MAPPER.createArrayNode().add(message));
@@ -260,7 +260,7 @@ public class ResponsesHandler implements Handler, ResponsesBackend {
                 return false;
             }
 
-            String parsedEventType = parsed.path("type").asText(eventType != null ? eventType : "");
+            String parsedEventType = parsed.path("type").asString(eventType != null ? eventType : "");
             if (!"response.completed".equals(parsedEventType) && !"response.incomplete".equals(parsedEventType)) {
                 return false;
             }

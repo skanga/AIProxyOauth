@@ -6,7 +6,8 @@ import com.aiproxyoauth.provider.anthropic.AnthropicCompatibilityProfile;
 import com.aiproxyoauth.provider.anthropic.AnthropicHttpClient;
 import com.aiproxyoauth.transport.BoundedBodyReader;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
 
 import java.io.IOException;
 import java.net.http.HttpResponse;
@@ -198,7 +199,7 @@ public final class AnthropicModelResolver implements ProviderModelCatalog {
         JsonNode root;
         try {
             root = Json.MAPPER.readTree(body);
-        } catch (IOException error) {
+        } catch (JacksonException error) {
             throw new DiscoveryException(
                     FailureKind.INVALID_RESPONSE, "Anthropic returned invalid model JSON", error);
         }
@@ -210,11 +211,11 @@ public final class AnthropicModelResolver implements ProviderModelCatalog {
 
         Map<String, ProviderModel> models = new LinkedHashMap<>();
         for (JsonNode value : data) {
-            String id = value.path("id").asText();
+            String id = value.path("id").asString();
             if (id.isBlank()) {
                 continue;
             }
-            String displayName = value.path("display_name").asText(id);
+            String displayName = value.path("display_name").asString(id);
             models.putIfAbsent(id, baseModel(id, displayName));
         }
         if (models.isEmpty()) {

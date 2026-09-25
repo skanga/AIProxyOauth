@@ -1,6 +1,6 @@
 package com.aiproxyoauth.auth;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import com.aiproxyoauth.config.ServerConfig;
 import com.aiproxyoauth.util.JwtParser;
 

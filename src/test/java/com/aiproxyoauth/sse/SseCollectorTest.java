@@ -1,6 +1,6 @@
 package com.aiproxyoauth.sse;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -16,7 +16,7 @@ class SseCollectorTest {
         InputStream is = new ByteArrayInputStream(data.getBytes());
         JsonNode response = SseCollector.collectCompletedResponse(is);
         
-        assertEquals("resp-1", response.get("id").asText());
+        assertEquals("resp-1", response.get("id").asString());
     }
 
     @Test
@@ -43,10 +43,10 @@ class SseCollectorTest {
                 new ByteArrayInputStream(data.getBytes()));
 
         JsonNode call = response.path("output").get(0);
-        assertEquals("function_call", call.path("type").asText());
-        assertEquals("call_1", call.path("call_id").asText());
-        assertEquals("python-eval", call.path("name").asText());
-        assertEquals("{\"code\":\"factorial(100)\"}", call.path("arguments").asText());
+        assertEquals("function_call", call.path("type").asString());
+        assertEquals("call_1", call.path("call_id").asString());
+        assertEquals("python-eval", call.path("name").asString());
+        assertEquals("{\"code\":\"factorial(100)\"}", call.path("arguments").asString());
     }
 
     @Test
@@ -62,6 +62,6 @@ class SseCollectorTest {
                 new ByteArrayInputStream(data.getBytes()));
 
         assertEquals(1, response.path("output").size());
-        assertEquals("{}", response.path("output").get(0).path("arguments").asText());
+        assertEquals("{}", response.path("output").get(0).path("arguments").asString());
     }
 }

@@ -1,7 +1,7 @@
 package com.aiproxyoauth.provider.anthropic.auth;
 
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 
 final class OAuthTokenParser {
@@ -26,14 +26,14 @@ final class OAuthTokenParser {
             );
         }
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            String errorCode = safeErrorCode(root.path("error").asText());
+            String errorCode = safeErrorCode(root.path("error").asString());
             String suffix = errorCode.isEmpty() ? "" : " (" + errorCode + ")";
             throw new AnthropicOAuthException(
                     AnthropicOAuthException.Kind.API_ERROR,
                     "OAuth endpoint returned HTTP " + response.statusCode() + suffix + "."
             );
         }
-        String accessToken = root.path("access_token").asText();
+        String accessToken = root.path("access_token").asString();
         if (accessToken.isBlank()) {
             throw new AnthropicOAuthException(
                     AnthropicOAuthException.Kind.MISSING_TOKEN,
@@ -49,7 +49,7 @@ final class OAuthTokenParser {
         }
         return new OAuthTokenSet(
                 accessToken,
-                root.path("refresh_token").asText(),
+                root.path("refresh_token").asString(),
                 expiresIn
         );
     }

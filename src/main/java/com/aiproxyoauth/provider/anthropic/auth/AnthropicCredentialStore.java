@@ -1,8 +1,8 @@
 package com.aiproxyoauth.provider.anthropic.auth;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -101,7 +101,7 @@ public final class AnthropicCredentialStore
                 throw new IOException("Invalid Anthropic credential file", error);
             }
             if (root == null || root.path("version").asInt(-1) != 1
-                    || !"anthropic".equals(root.path("provider").asText())) {
+                    || !"anthropic".equals(root.path("provider").asString())) {
                 throw new IOException("Unsupported Anthropic credential file");
             }
             try {
@@ -202,7 +202,7 @@ public final class AnthropicCredentialStore
     }
 
     private static String requiredText(JsonNode root, String field) throws IOException {
-        String value = root.path(field).asText();
+        String value = root.path(field).asString();
         if (value.isBlank()) {
             throw new IOException("Anthropic credential field is missing: " + field);
         }

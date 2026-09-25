@@ -1,8 +1,8 @@
 package com.aiproxyoauth.server;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.aiproxyoauth.config.ServerConfig;
 import com.aiproxyoauth.logging.RequestLogger;
 import com.aiproxyoauth.model.CodexInstructionsProvider;
@@ -86,7 +86,7 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
         // without an extra ModelResolver call. Callers can always override via the "model" field.
         String defaultModel = config.models() != null && !config.models().isEmpty()
                 ? config.models().getFirst() : ServerConfig.DEFAULT_MODEL;
-        String model = body.path("model").asText(defaultModel);
+        String model = body.path("model").asString(defaultModel);
         ModelAliasResolver.ResolvedModel resolvedModel = modelAliasResolver.resolve(model);
         String upstreamModel = route == null
                 ? (resolvedModel.model() != null ? resolvedModel.model() : model)
@@ -96,7 +96,7 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
         // Build upstream Responses API request
         ObjectNode upstreamBody = buildUpstreamBody(body, upstreamModel, resolvedModel.reasoningEffort());
         String promptCacheKey = config.forwardPromptCacheHeaders()
-                ? upstreamBody.path("prompt_cache_key").asText(null)
+                ? upstreamBody.path("prompt_cache_key").asString(null)
                 : null;
 
         // Always stream upstream
@@ -136,7 +136,7 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
 
         JsonNode messages = chatBody.get("messages");
         for (JsonNode msg : messages) {
-            String role = msg.path("role").asText("");
+            String role = msg.path("role").asString("");
             switch (role) {
                 case "system", "developer" -> {
                     String text = extractTextContent(msg.get("content"));
@@ -175,11 +175,11 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                         for (JsonNode tc : toolCalls) {
                             ObjectNode funcCall = MAPPER.createObjectNode();
                             funcCall.put("type", "function_call");
-                            funcCall.put("call_id", tc.path("id").asText(""));
+                            funcCall.put("call_id", tc.path("id").asString(""));
                             JsonNode func = tc.get("function");
                             if (func != null) {
-                                funcCall.put("name", func.path("name").asText(""));
-                                funcCall.put("arguments", func.path("arguments").asText("{}"));
+                                funcCall.put("name", func.path("name").asString(""));
+                                funcCall.put("arguments", func.path("arguments").asString("{}"));
                             }
                             input.add(funcCall);
                         }
@@ -188,7 +188,7 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                 case "tool" -> {
                     ObjectNode item = MAPPER.createObjectNode();
                     item.put("type", "function_call_output");
-                    item.put("call_id", msg.path("tool_call_id").asText(""));
+                    item.put("call_id", msg.path("tool_call_id").asString(""));
                     String content = extractTextContent(msg.get("content"));
                     item.put("output", content);
                     input.add(item);
@@ -217,14 +217,14 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
         if (chatBody.has("tools") && chatBody.get("tools").isArray()) {
             ArrayNode tools = MAPPER.createArrayNode();
             for (JsonNode toolDef : chatBody.get("tools")) {
-                if (!"function".equals(toolDef.path("type").asText())) continue;
+                if (!"function".equals(toolDef.path("type").asString())) continue;
                 ObjectNode tool = MAPPER.createObjectNode();
                 tool.put("type", "function");
                 JsonNode func = toolDef.get("function");
                 if (func != null) {
-                    tool.put("name", func.path("name").asText(""));
+                    tool.put("name", func.path("name").asString(""));
                     if (func.has("description")) {
-                        tool.put("description", func.path("description").asText(""));
+                        tool.put("description", func.path("description").asString(""));
                     }
                     if (func.has("parameters")) {
                         tool.set("parameters", func.get("parameters"));
@@ -244,10 +244,10 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
         // Tool choice
         if (chatBody.has("tool_choice") && !chatBody.get("tool_choice").isNull()) {
             JsonNode choice = chatBody.get("tool_choice");
-            if (choice.isObject() && "function".equals(choice.path("type").asText())) {
+            if (choice.isObject() && "function".equals(choice.path("type").asString())) {
                 ObjectNode translated = MAPPER.createObjectNode();
                 translated.put("type", "function");
-                translated.put("name", choice.path("function").path("name").asText(""));
+                translated.put("name", choice.path("function").path("name").asString(""));
                 upstream.set("tool_choice", translated);
             } else {
                 upstream.set("tool_choice", choice);
@@ -257,7 +257,7 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
         // Reasoning effort
         if (chatBody.has("reasoning_effort") && !chatBody.get("reasoning_effort").isNull()) {
             ObjectNode reasoning = MAPPER.createObjectNode();
-            reasoning.put("effort", modelAliasResolver.clampReasoningEffort(model, chatBody.get("reasoning_effort").asText()));
+            reasoning.put("effort", modelAliasResolver.clampReasoningEffort(model, chatBody.get("reasoning_effort").asString()));
             upstream.set("reasoning", reasoning);
         } else if (aliasReasoningEffort != null) {
             ObjectNode reasoning = MAPPER.createObjectNode();
@@ -335,27 +335,27 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
         JsonNode output = completedResponse.get("output");
         if (output != null && output.isArray()) {
             for (JsonNode item : output) {
-                String type = item.path("type").asText("");
+                String type = item.path("type").asString("");
                 switch (type) {
                     case "message" -> {
                         JsonNode content = item.get("content");
                         if (content != null && content.isArray()) {
                             for (JsonNode part : content) {
-                                if ("output_text".equals(part.path("type").asText())) {
-                                    textContent.append(part.path("text").asText(""));
-                                } else if ("refusal".equals(part.path("type").asText())) {
-                                    refusal = part.path("refusal").asText(part.path("text").asText(""));
+                                if ("output_text".equals(part.path("type").asString())) {
+                                    textContent.append(part.path("text").asString(""));
+                                } else if ("refusal".equals(part.path("type").asString())) {
+                                    refusal = part.path("refusal").asString(part.path("text").asString(""));
                                 }
                             }
                         }
                     }
                     case "function_call" -> {
                         ObjectNode tc = MAPPER.createObjectNode();
-                        tc.put("id", item.path("call_id").asText(""));
+                        tc.put("id", item.path("call_id").asString(""));
                         tc.put("type", "function");
                         ObjectNode func = MAPPER.createObjectNode();
-                        func.put("name", item.path("name").asText(""));
-                        func.put("arguments", item.path("arguments").asText("{}"));
+                        func.put("name", item.path("name").asString(""));
+                        func.put("arguments", item.path("arguments").asString("{}"));
                         tc.set("function", func);
                         toolCalls.add(tc);
                     }
@@ -376,14 +376,14 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
         }
 
         if (textContent.isEmpty() && toolCalls.isEmpty() && (refusal == null || refusal.isBlank())
-                && !"incomplete".equals(completedResponse.path("status").asText())) {
+                && !"incomplete".equals(completedResponse.path("status").asString())) {
             JsonHelper.toErrorResponse(ctx,
                     "Upstream completed without text, tool calls, or a refusal.",
                     502, "upstream_protocol_error", null, "empty_completion");
             return;
         }
 
-        String status = completedResponse.path("status").asText("");
+        String status = completedResponse.path("status").asString("");
         finishReason = switch (status) {
             case "completed" -> toolCalls.isEmpty() ? "stop" : "tool_calls";
             case "incomplete" -> "length";
@@ -443,18 +443,18 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                     JsonNode parsed = MAPPER.readTree(event.data());
                     if (parsed == null || !parsed.isObject()) return;
 
-                    String eventType = parsed.path("type").asText(event.event() != null ? event.event() : "");
+                    String eventType = parsed.path("type").asString(event.event() != null ? event.event() : "");
 
                     switch (eventType) {
                         case "response.output_text.delta" -> {
-                            String delta = parsed.path("delta").asText("");
+                            String delta = parsed.path("delta").asString("");
                             if (!delta.isEmpty()) {
                                 writeSseChunk(ctx, os, createChunk(id, created, model,
                                         createContentDelta(delta), null));
                             }
                         }
                         case "response.refusal.delta" -> {
-                            String refusal = parsed.path("delta").asText("");
+                            String refusal = parsed.path("delta").asString("");
                             if (!refusal.isEmpty()) {
                                 ObjectNode delta = MAPPER.createObjectNode().put("refusal", refusal);
                                 writeSseChunk(ctx, os, createChunk(id, created, model, delta, null));
@@ -462,9 +462,9 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                         }
                         case "response.output_item.added" -> {
                             JsonNode item = parsed.get("item");
-                            if (item != null && "function_call".equals(item.path("type").asText())) {
-                                String callId = item.path("call_id").asText("");
-                                String name = item.path("name").asText("");
+                            if (item != null && "function_call".equals(item.path("type").asString())) {
+                                String callId = item.path("call_id").asString("");
+                                String name = item.path("name").asString("");
                                 if (callId.isBlank()) break;
                                 rememberCallItemId(callIdsByItemId, item, callId);
                                 if (toolIndexes.containsKey(callId)) break;
@@ -489,16 +489,16 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                         }
                         case "response.output_item.done" -> {
                             JsonNode item = parsed.get("item");
-                            if (item != null && "function_call".equals(item.path("type").asText())) {
+                            if (item != null && "function_call".equals(item.path("type").asString())) {
                                 rememberCallItemId(callIdsByItemId, item,
-                                        item.path("call_id").asText(""));
+                                        item.path("call_id").asString(""));
                                 reconcileToolCall(ctx, os, id, created, model, toolIndexes,
                                         emittedToolArguments, item);
                             }
                         }
                         case "response.function_call_arguments.delta" -> {
                             String callId = eventCallId(parsed, callIdsByItemId);
-                            String argDelta = parsed.path("delta").asText("");
+                            String argDelta = parsed.path("delta").asString("");
                             Integer index = toolIndexes.get(callId);
                             if (index != null && !argDelta.isEmpty()) {
                                 emittedToolArguments.computeIfAbsent(callId, ignored -> new StringBuilder())
@@ -518,21 +518,21 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                         case "response.function_call_arguments.done" -> {
                             String callId = eventCallId(parsed, callIdsByItemId);
                             emitMissingArguments(ctx, os, id, created, model, toolIndexes,
-                                    emittedToolArguments, callId, parsed.path("arguments").asText(""));
+                                    emittedToolArguments, callId, parsed.path("arguments").asString(""));
                         }
                         case "response.completed", "response.incomplete" -> {
                             JsonNode response = parsed.get("response");
                             JsonNode output = response != null ? response.get("output") : null;
                             if (output != null && output.isArray()) {
                                 for (JsonNode item : output) {
-                                    if ("function_call".equals(item.path("type").asText())) {
+                                    if ("function_call".equals(item.path("type").asString())) {
                                         reconcileToolCall(ctx, os, id, created, model, toolIndexes,
                                                 emittedToolArguments, item);
                                     }
                                 }
                             }
                             String status = "response.incomplete".equals(eventType) ? "incomplete"
-                                    : response != null ? response.path("status").asText("") : "";
+                                    : response != null ? response.path("status").asString("") : "";
                             String fr = switch (status) {
                                 case "completed" -> toolIndexes.isEmpty() ? "stop" : "tool_calls";
                                 case "incomplete" -> "length";
@@ -560,15 +560,15 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
                         case "response.failed", "response.cancelled" -> {
                             JsonNode response = parsed.get("response");
                             String errorMsg = response != null
-                                    ? response.path("error").path("message").asText("Upstream response failed.")
+                                    ? response.path("error").path("message").asString("Upstream response failed.")
                                     : "Upstream response failed.";
                             writeSseError(ctx, os, errorMsg);
                             finishSent[0] = true;
                         }
                         case "error" -> {
                             // Bare error events carry the message at the top level, not under `response`.
-                            String errorMsg = parsed.path("message").asText(
-                                    parsed.path("error").path("message").asText("Upstream response failed."));
+                            String errorMsg = parsed.path("message").asString(
+                                    parsed.path("error").path("message").asString("Upstream response failed."));
                             writeSseError(ctx, os, errorMsg);
                             finishSent[0] = true;
                         }
@@ -610,48 +610,48 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
     private String validateToolChoice(JsonNode body) {
         JsonNode choice = body.get("tool_choice");
         if (choice == null || choice.isNull()) return null;
-        if (choice.isTextual()) {
-            return Set.of("auto", "none", "required").contains(choice.asText())
+        if (choice.isString()) {
+            return Set.of("auto", "none", "required").contains(choice.asString())
                     ? null : "`tool_choice` must be `auto`, `none`, `required`, or a named function choice.";
         }
-        if (!choice.isObject() || !"function".equals(choice.path("type").asText())) {
+        if (!choice.isObject() || !"function".equals(choice.path("type").asString())) {
             return "Object `tool_choice` must have type `function`.";
         }
-        String name = choice.path("function").path("name").asText("");
+        String name = choice.path("function").path("name").asString("");
         if (name.isBlank()) return "Named function `tool_choice` requires `function.name`.";
         JsonNode tools = body.get("tools");
         if (tools == null || !tools.isArray()) return "Named function `tool_choice` requires a matching tool.";
         for (JsonNode tool : tools) {
-            if (name.equals(tool.path("function").path("name").asText())) return null;
+            if (name.equals(tool.path("function").path("name").asString())) return null;
         }
         return "Named function `tool_choice` does not match any declared tool.";
     }
 
     private String eventCallId(JsonNode event, Map<String, String> callIdsByItemId) {
-        String callId = event.path("call_id").asText("");
+        String callId = event.path("call_id").asString("");
         if (!callId.isBlank()) return callId;
-        return callIdsByItemId.getOrDefault(event.path("item_id").asText(""), "");
+        return callIdsByItemId.getOrDefault(event.path("item_id").asString(""), "");
     }
 
     private void rememberCallItemId(Map<String, String> callIdsByItemId,
                                     JsonNode item, String callId) {
-        String itemId = item.path("id").asText("");
+        String itemId = item.path("id").asString("");
         if (!itemId.isBlank() && !callId.isBlank()) callIdsByItemId.put(itemId, callId);
     }
 
     private void reconcileToolCall(Context ctx, OutputStream os, String id, long created, String model,
                                    Map<String, Integer> toolIndexes,
                                    Map<String, StringBuilder> emittedToolArguments, JsonNode item) throws Exception {
-        String callId = item.path("call_id").asText("");
+        String callId = item.path("call_id").asString("");
         if (callId.isBlank()) return;
         if (toolIndexes.containsKey(callId)) {
             emitMissingArguments(ctx, os, id, created, model, toolIndexes, emittedToolArguments,
-                    callId, item.path("arguments").asText(""));
+                    callId, item.path("arguments").asString(""));
             return;
         }
         int index = toolIndexes.size();
         toolIndexes.put(callId, index);
-        String arguments = item.path("arguments").asText("");
+        String arguments = item.path("arguments").asString("");
         emittedToolArguments.put(callId, new StringBuilder(arguments));
 
         ObjectNode tc = MAPPER.createObjectNode();
@@ -659,7 +659,7 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
         tc.put("id", callId);
         tc.put("type", "function");
         ObjectNode function = MAPPER.createObjectNode();
-        function.put("name", item.path("name").asText(""));
+        function.put("name", item.path("name").asString(""));
         function.put("arguments", arguments);
         tc.set("function", function);
         writeSseChunk(ctx, os, createChunk(id, created, model,
@@ -741,12 +741,12 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
 
     private String extractTextContent(JsonNode content) {
         if (content == null) return "";
-        if (content.isTextual()) return content.asText();
+        if (content.isString()) return content.asString();
         if (content.isArray()) {
             StringBuilder sb = new StringBuilder();
             for (JsonNode part : content) {
-                if (part.isObject() && "text".equals(part.path("type").asText())) {
-                    String text = part.path("text").asText("");
+                if (part.isObject() && "text".equals(part.path("type").asString())) {
+                    String text = part.path("text").asString("");
                     if (!text.isEmpty()) {
                         sb.append(text);
                     }
@@ -759,26 +759,26 @@ public class ChatCompletionsHandler implements Handler, ChatBackend {
 
     private void addContentParts(ArrayNode target, JsonNode content) {
         if (content == null) return;
-        if (content.isTextual()) {
+        if (content.isString()) {
             ObjectNode part = MAPPER.createObjectNode();
             part.put("type", "input_text");
-            part.put("text", content.asText());
+            part.put("text", content.asString());
             target.add(part);
         } else if (content.isArray()) {
             for (JsonNode item : content) {
                 if (item.isObject()) {
-                    String type = item.path("type").asText("");
+                    String type = item.path("type").asString("");
                     if ("text".equals(type)) {
                         ObjectNode part = MAPPER.createObjectNode();
                         part.put("type", "input_text");
-                        part.put("text", item.path("text").asText(""));
+                        part.put("text", item.path("text").asString(""));
                         target.add(part);
                     } else if ("image_url".equals(type)) {
                         ObjectNode part = MAPPER.createObjectNode();
                         part.put("type", "input_image");
                         JsonNode imageUrl = item.get("image_url");
                         if (imageUrl != null && imageUrl.has("url")) {
-                            part.put("url", imageUrl.path("url").asText(""));
+                            part.put("url", imageUrl.path("url").asString(""));
                         }
                         // Note: the OpenAI "detail" field ("low"/"high"/"auto") is intentionally
                         // not forwarded — the upstream Responses API does not expose an equivalent

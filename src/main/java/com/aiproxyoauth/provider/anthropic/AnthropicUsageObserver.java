@@ -1,7 +1,7 @@
 package com.aiproxyoauth.provider.anthropic;
 
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 /** Best-effort usage observer which never changes native SSE delivery. */
 public final class AnthropicUsageObserver {
@@ -23,7 +23,7 @@ public final class AnthropicUsageObserver {
     private void observe(String data) {
         try {
             JsonNode event = Json.MAPPER.readTree(data);
-            JsonNode usage = "message_start".equals(event.path("type").asText())
+            JsonNode usage = "message_start".equals(event.path("type").asString())
                     ? event.path("message").path("usage") : event.path("usage");
             if (usage.has("input_tokens")) inputTokens = usage.path("input_tokens").asLong();
             if (usage.has("output_tokens")) outputTokens = usage.path("output_tokens").asLong();

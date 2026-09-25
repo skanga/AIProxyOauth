@@ -1,9 +1,9 @@
 package com.aiproxyoauth.logging;
 
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import io.javalin.http.Context;
 
 import java.io.IOException;
@@ -163,7 +163,7 @@ public final class RequestLogger {
         }
         if (node.isObject()) {
             ObjectNode object = (ObjectNode) node;
-            if ("redacted_thinking".equals(object.path("type").asText())
+            if ("redacted_thinking".equals(object.path("type").asString())
                     && object.has("data")) {
                 object.put("data", REDACTED);
             }

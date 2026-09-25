@@ -1,7 +1,7 @@
 package com.aiproxyoauth.provider.stream;
 
 import com.aiproxyoauth.provider.ProviderError;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 import java.util.Objects;
 

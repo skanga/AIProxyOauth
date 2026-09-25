@@ -2,8 +2,8 @@ package com.aiproxyoauth.server;
 
 import com.aiproxyoauth.provider.chat.ChatRequest;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -46,7 +46,7 @@ public final class OpenAiChatRequestAdapter {
 
     private ChatRequest.Message adaptMessage(JsonNode message) {
         if (message == null || !message.isObject()) throw invalid("Each message must be an object");
-        ChatRequest.Role role = switch (message.path("role").asText()) {
+        ChatRequest.Role role = switch (message.path("role").asString()) {
             case "system" -> ChatRequest.Role.SYSTEM;
             case "developer" -> ChatRequest.Role.DEVELOPER;
             case "user" -> ChatRequest.Role.USER;
@@ -81,17 +81,17 @@ public final class OpenAiChatRequestAdapter {
 
     private void addContent(List<ChatRequest.Content> target, JsonNode content) {
         if (content == null || content.isNull()) return;
-        if (content.isTextual()) {
-            target.add(new ChatRequest.Text(content.asText()));
+        if (content.isString()) {
+            target.add(new ChatRequest.Text(content.asString()));
             return;
         }
         if (!content.isArray()) throw invalid("Message content must be text or an array");
         for (JsonNode part : content) {
-            String type = part.path("type").asText();
+            String type = part.path("type").asString();
             if ("text".equals(type)) {
                 target.add(new ChatRequest.Text(requiredText(part, "text")));
             } else if ("image_url".equals(type)) {
-                target.add(adaptImage(part.path("image_url").path("url").asText()));
+                target.add(adaptImage(part.path("image_url").path("url").asString()));
             } else {
                 throw invalid("Unsupported message content type: " + type);
             }
@@ -123,7 +123,7 @@ public final class OpenAiChatRequestAdapter {
         if (!toolsNode.isArray()) throw invalid("`tools` must be an array");
         List<ChatRequest.ToolDefinition> tools = new ArrayList<>();
         for (JsonNode tool : toolsNode) {
-            if (!"function".equals(tool.path("type").asText())) {
+            if (!"function".equals(tool.path("type").asString())) {
                 throw invalid("Only function tools are supported");
             }
             JsonNode function = tool.path("function");
@@ -136,22 +136,22 @@ public final class OpenAiChatRequestAdapter {
             }
             tools.add(new ChatRequest.ToolDefinition(
                     requiredText(function, "name"),
-                    function.path("description").asText(""), schema));
+                    function.path("description").asString(""), schema));
         }
         return List.copyOf(tools);
     }
 
     private ChatRequest.ToolChoice adaptToolChoice(JsonNode choice) {
         if (choice == null || choice.isNull()) return new ChatRequest.ToolChoice.Auto();
-        if (choice.isTextual()) {
-            return switch (choice.asText()) {
+        if (choice.isString()) {
+            return switch (choice.asString()) {
                 case "auto" -> new ChatRequest.ToolChoice.Auto();
                 case "none" -> new ChatRequest.ToolChoice.None();
                 case "required" -> new ChatRequest.ToolChoice.Required();
                 default -> throw invalid("Unsupported `tool_choice`");
             };
         }
-        if (choice.isObject() && "function".equals(choice.path("type").asText())) {
+        if (choice.isObject() && "function".equals(choice.path("type").asString())) {
             return new ChatRequest.ToolChoice.Named(requiredText(choice.path("function"), "name"));
         }
         throw invalid("Unsupported `tool_choice`");
@@ -159,12 +159,12 @@ public final class OpenAiChatRequestAdapter {
 
     private List<String> adaptStops(JsonNode stop) {
         if (stop == null || stop.isNull()) return List.of();
-        if (stop.isTextual()) return List.of(stop.asText());
+        if (stop.isString()) return List.of(stop.asString());
         if (!stop.isArray()) throw invalid("`stop` must be a string or an array of strings");
         List<String> stops = new ArrayList<>();
         stop.forEach(value -> {
-            if (!value.isTextual()) throw invalid("Every stop sequence must be a string");
-            stops.add(value.asText());
+            if (!value.isString()) throw invalid("Every stop sequence must be a string");
+            stops.add(value.asString());
         });
         return List.copyOf(stops);
     }
@@ -189,17 +189,17 @@ public final class OpenAiChatRequestAdapter {
     private String optionalText(JsonNode root, String field) {
         JsonNode value = root.get(field);
         if (value == null || value.isNull()) return null;
-        if (!value.isTextual()) throw invalid("`" + field + "` must be a string");
-        return value.asText().toLowerCase(Locale.ROOT);
+        if (!value.isString()) throw invalid("`" + field + "` must be a string");
+        return value.asString().toLowerCase(Locale.ROOT);
     }
 
     private String textContent(JsonNode content) {
         if (content == null || content.isNull()) return "";
-        if (content.isTextual()) return content.asText();
+        if (content.isString()) return content.asString();
         if (!content.isArray()) throw invalid("Tool content must be text or an array");
         StringBuilder text = new StringBuilder();
         for (JsonNode part : content) {
-            if (!"text".equals(part.path("type").asText())) {
+            if (!"text".equals(part.path("type").asString())) {
                 throw invalid("Tool content may contain only text");
             }
             text.append(requiredText(part, "text"));
@@ -209,10 +209,10 @@ public final class OpenAiChatRequestAdapter {
 
     private String requiredText(JsonNode node, String field) {
         JsonNode value = node == null ? null : node.get(field);
-        if (value == null || !value.isTextual() || value.asText().isBlank()) {
+        if (value == null || !value.isString() || value.asString().isBlank()) {
             throw invalid("`" + field + "` must be a non-empty string");
         }
-        return value.asText();
+        return value.asString();
     }
 
     private IllegalArgumentException invalid(String message) {

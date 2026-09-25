@@ -2,8 +2,8 @@ package com.aiproxyoauth.server;
 
 import com.aiproxyoauth.provider.chat.ChatRequest;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -19,9 +19,9 @@ public final class ResponsesRequestAdapter {
         List<ChatRequest.Message> messages = new ArrayList<>();
         JsonNode instructions = root.get("instructions");
         if (instructions != null && !instructions.isNull()) {
-            if (!instructions.isTextual()) throw invalid("`instructions` must be a string");
+            if (!instructions.isString()) throw invalid("`instructions` must be a string");
             messages.add(new ChatRequest.Message(
-                    ChatRequest.Role.SYSTEM, List.of(new ChatRequest.Text(instructions.asText()))));
+                    ChatRequest.Role.SYSTEM, List.of(new ChatRequest.Text(instructions.asString()))));
         }
         adaptInput(root.get("input"), messages);
         if (messages.isEmpty()) throw invalid("`input` must contain at least one supported item");
@@ -42,8 +42,8 @@ public final class ResponsesRequestAdapter {
 
     private void adaptInput(JsonNode input, List<ChatRequest.Message> messages) {
         if (input == null || input.isNull()) throw invalid("`input` is required");
-        if (input.isTextual()) {
-            messages.add(message(ChatRequest.Role.USER, new ChatRequest.Text(input.asText())));
+        if (input.isString()) {
+            messages.add(message(ChatRequest.Role.USER, new ChatRequest.Text(input.asString())));
             return;
         }
         if (!input.isArray()) throw invalid("`input` must be a string or an array");
@@ -52,7 +52,7 @@ public final class ResponsesRequestAdapter {
 
     private void adaptItem(JsonNode item, List<ChatRequest.Message> messages) {
         if (item == null || !item.isObject()) throw invalid("Every input item must be an object");
-        String type = item.has("type") ? item.path("type").asText()
+        String type = item.has("type") ? item.path("type").asString()
                 : item.has("role") ? "message" : "";
         switch (type) {
             case "message" -> messages.add(adaptMessage(item));
@@ -72,12 +72,12 @@ public final class ResponsesRequestAdapter {
             case "item_reference" -> throw invalid(
                     "Unresolved item_reference is not supported for Anthropic");
             default -> throw invalid("Unsupported Responses input item type: "
-                    + item.path("type").asText("<missing>"));
+                    + item.path("type").asString("<missing>"));
         }
     }
 
     private ChatRequest.Message adaptMessage(JsonNode item) {
-        ChatRequest.Role role = switch (item.path("role").asText()) {
+        ChatRequest.Role role = switch (item.path("role").asString()) {
             case "system" -> ChatRequest.Role.SYSTEM;
             case "developer" -> ChatRequest.Role.DEVELOPER;
             case "user" -> ChatRequest.Role.USER;
@@ -86,8 +86,8 @@ public final class ResponsesRequestAdapter {
         };
         JsonNode content = item.get("content");
         List<ChatRequest.Content> parts = new ArrayList<>();
-        if (content != null && content.isTextual()) {
-            parts.add(new ChatRequest.Text(content.asText()));
+        if (content != null && content.isString()) {
+            parts.add(new ChatRequest.Text(content.asString()));
         } else if (content != null && content.isArray()) {
             for (JsonNode part : content) parts.add(adaptContent(part));
         } else {
@@ -97,12 +97,12 @@ public final class ResponsesRequestAdapter {
     }
 
     private ChatRequest.Content adaptContent(JsonNode part) {
-        return switch (part.path("type").asText()) {
+        return switch (part.path("type").asString()) {
             case "input_text", "output_text" ->
                     new ChatRequest.Text(requiredText(part, "text"));
-            case "input_image" -> adaptImage(part.path("image_url").asText());
+            case "input_image" -> adaptImage(part.path("image_url").asString());
             default -> throw invalid("Unsupported Responses message content type: "
-                    + part.path("type").asText("<missing>"));
+                    + part.path("type").asString("<missing>"));
         };
     }
 
@@ -135,7 +135,7 @@ public final class ResponsesRequestAdapter {
         StringBuilder text = new StringBuilder();
         appendTextItems(text, item.get("summary"));
         appendTextItems(text, item.get("content"));
-        String signature = item.path("reasoning_signature").asText("");
+        String signature = item.path("reasoning_signature").asString("");
         JsonNode redacted = item.get("redacted_data");
         return new ChatRequest.Reasoning(text.toString(), signature, redacted);
     }
@@ -155,7 +155,7 @@ public final class ResponsesRequestAdapter {
         if (!toolsNode.isArray()) throw invalid("`tools` must be an array");
         List<ChatRequest.ToolDefinition> tools = new ArrayList<>();
         for (JsonNode tool : toolsNode) {
-            if (!"function".equals(tool.path("type").asText())) {
+            if (!"function".equals(tool.path("type").asString())) {
                 throw invalid("Only function tools are supported for Anthropic");
             }
             JsonNode schema = tool.get("parameters");
@@ -166,22 +166,22 @@ public final class ResponsesRequestAdapter {
                 schema = empty;
             }
             tools.add(new ChatRequest.ToolDefinition(
-                    requiredText(tool, "name"), tool.path("description").asText(""), schema));
+                    requiredText(tool, "name"), tool.path("description").asString(""), schema));
         }
         return List.copyOf(tools);
     }
 
     private ChatRequest.ToolChoice adaptToolChoice(JsonNode choice) {
         if (choice == null || choice.isNull()) return new ChatRequest.ToolChoice.Auto();
-        if (choice.isTextual()) {
-            return switch (choice.asText()) {
+        if (choice.isString()) {
+            return switch (choice.asString()) {
                 case "auto" -> new ChatRequest.ToolChoice.Auto();
                 case "none" -> new ChatRequest.ToolChoice.None();
                 case "required" -> new ChatRequest.ToolChoice.Required();
                 default -> throw invalid("Unsupported `tool_choice`");
             };
         }
-        if (choice.isObject() && "function".equals(choice.path("type").asText())) {
+        if (choice.isObject() && "function".equals(choice.path("type").asString())) {
             return new ChatRequest.ToolChoice.Named(requiredText(choice, "name"));
         }
         throw invalid("Unsupported `tool_choice`");
@@ -204,12 +204,12 @@ public final class ResponsesRequestAdapter {
 
     private List<String> adaptStops(JsonNode stop) {
         if (stop == null || stop.isNull()) return List.of();
-        if (stop.isTextual()) return List.of(stop.asText());
+        if (stop.isString()) return List.of(stop.asString());
         if (!stop.isArray()) throw invalid("`stop` must be a string or string array");
         List<String> values = new ArrayList<>();
         for (JsonNode value : stop) {
-            if (!value.isTextual()) throw invalid("Every stop sequence must be a string");
-            values.add(value.asText());
+            if (!value.isString()) throw invalid("Every stop sequence must be a string");
+            values.add(value.asString());
         }
         return List.copyOf(values);
     }
@@ -219,8 +219,8 @@ public final class ResponsesRequestAdapter {
         if (!reasoning.isObject()) throw invalid("`reasoning` must be an object");
         JsonNode effort = reasoning.get("effort");
         if (effort == null || effort.isNull()) return null;
-        if (!effort.isTextual()) throw invalid("`reasoning.effort` must be a string");
-        return effort.asText().toLowerCase(Locale.ROOT);
+        if (!effort.isString()) throw invalid("`reasoning.effort` must be a string");
+        return effort.asString().toLowerCase(Locale.ROOT);
     }
 
     private ChatRequest.Message message(ChatRequest.Role role, ChatRequest.Content content) {
@@ -229,16 +229,16 @@ public final class ResponsesRequestAdapter {
 
     private String nodeText(JsonNode value) {
         if (value == null || value.isNull()) return "";
-        if (value.isTextual()) return value.asText();
+        if (value.isString()) return value.asString();
         return value.toString();
     }
 
     private String requiredText(JsonNode node, String field) {
         JsonNode value = node == null ? null : node.get(field);
-        if (value == null || !value.isTextual() || value.asText().isBlank()) {
+        if (value == null || !value.isString() || value.asString().isBlank()) {
             throw invalid("`" + field + "` must be a non-empty string");
         }
-        return value.asText();
+        return value.asString();
     }
 
     private IllegalArgumentException invalid(String message) {

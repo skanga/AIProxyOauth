@@ -1,7 +1,7 @@
 package com.aiproxyoauth.server;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 
 import static com.aiproxyoauth.util.Json.MAPPER;
@@ -29,9 +29,9 @@ class ResponsesRequestSanitizerTest {
 
         assertEquals(1, sanitized.path("input").size());
         JsonNode item = sanitized.path("input").get(0);
-        assertEquals("message", item.path("type").asText());
-        assertEquals("user", item.path("role").asText());
-        assertEquals("hi", item.path("content").asText());
+        assertEquals("message", item.path("type").asString());
+        assertEquals("user", item.path("role").asString());
+        assertEquals("hi", item.path("content").asString());
         assertFalse(item.has("id"));
     }
 
@@ -114,11 +114,11 @@ class ResponsesRequestSanitizerTest {
         ObjectNode sanitized = sanitizer.sanitize(body, true);
 
         assertEquals(3, sanitized.path("input").size());
-        assertEquals("message", sanitized.path("input").get(0).path("type").asText());
-        assertEquals("function_call", sanitized.path("input").get(1).path("type").asText());
-        assertEquals("function_call_output", sanitized.path("input").get(2).path("type").asText());
+        assertEquals("message", sanitized.path("input").get(0).path("type").asString());
+        assertEquals("function_call", sanitized.path("input").get(1).path("type").asString());
+        assertEquals("function_call_output", sanitized.path("input").get(2).path("type").asString());
         assertEquals(1, sanitized.path("input").get(0).path("metadata").path("a").asInt());
-        assertEquals("ok", sanitized.path("input").get(2).path("output").asText());
+        assertEquals("ok", sanitized.path("input").get(2).path("output").asString());
     }
 
     @Test
@@ -132,9 +132,9 @@ class ResponsesRequestSanitizerTest {
         ObjectNode sanitized = sanitizer.sanitize(body, true);
 
         JsonNode item = sanitized.path("input").get(0);
-        assertEquals("message", item.path("type").asText());
-        assertEquals("assistant", item.path("role").asText());
-        assertTrue(item.path("content").asText().contains("[Previous read result; call_id=call_1]: file contents"));
+        assertEquals("message", item.path("type").asString());
+        assertEquals("assistant", item.path("role").asString());
+        assertTrue(item.path("content").asString().contains("[Previous read result; call_id=call_1]: file contents"));
     }
 
     @Test
@@ -148,9 +148,9 @@ class ResponsesRequestSanitizerTest {
         ObjectNode sanitized = sanitizer.sanitize(body, true);
 
         JsonNode item = sanitized.path("input").get(0);
-        assertEquals("message", item.path("type").asText());
-        assertEquals("assistant", item.path("role").asText());
-        assertTrue(item.path("content").asText().contains("custom contents"));
+        assertEquals("message", item.path("type").asString());
+        assertEquals("assistant", item.path("role").asString());
+        assertTrue(item.path("content").asString().contains("custom contents"));
     }
 
     @Test
@@ -164,9 +164,9 @@ class ResponsesRequestSanitizerTest {
         ObjectNode sanitized = sanitizer.sanitize(body, true);
 
         JsonNode item = sanitized.path("input").get(0);
-        assertEquals("message", item.path("type").asText());
-        assertEquals("assistant", item.path("role").asText());
-        assertTrue(item.path("content").asText().contains("shell contents"));
+        assertEquals("message", item.path("type").asString());
+        assertEquals("assistant", item.path("role").asString());
+        assertTrue(item.path("content").asString().contains("shell contents"));
     }
 
     @Test
@@ -180,9 +180,9 @@ class ResponsesRequestSanitizerTest {
 
         ObjectNode sanitized = sanitizer.sanitize(body, true);
 
-        assertEquals("custom_tool_call", sanitized.path("input").get(0).path("type").asText());
-        assertEquals("custom_tool_call_output", sanitized.path("input").get(1).path("type").asText());
-        assertEquals("ok", sanitized.path("input").get(1).path("output").asText());
+        assertEquals("custom_tool_call", sanitized.path("input").get(0).path("type").asString());
+        assertEquals("custom_tool_call_output", sanitized.path("input").get(1).path("type").asString());
+        assertEquals("ok", sanitized.path("input").get(1).path("output").asString());
     }
 
     @Test
@@ -200,7 +200,7 @@ class ResponsesRequestSanitizerTest {
 
         ObjectNode sanitized = sanitizer.sanitize(body, true);
 
-        String content = sanitized.path("input").get(0).path("content").asText();
+        String content = sanitized.path("input").get(0).path("content").asString();
         assertTrue(content.length() < output.length());
         assertTrue(content.contains("[truncated]"));
     }

@@ -1,6 +1,6 @@
 package com.aiproxyoauth.provider.chat;
 
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -64,7 +64,7 @@ class ChatRequestTest {
         redacted.put("data", "mutated");
 
         ChatRequest.Reasoning reasoning = (ChatRequest.Reasoning) assistant.content().getFirst();
-        assertEquals("opaque", reasoning.redactedData().path("data").asText());
+        assertEquals("opaque", reasoning.redactedData().path("data").asString());
         assertEquals("call-1", ((ChatRequest.ToolCall) assistant.content().get(2)).id());
         assertEquals("contents", ((ChatRequest.ToolResult) tool.content().getFirst()).output());
     }

@@ -2,7 +2,7 @@ package com.aiproxyoauth.server;
 
 import com.aiproxyoauth.model.ModelResolver;
 import com.aiproxyoauth.usage.UsageTracker;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import com.aiproxyoauth.util.Json;
 import io.javalin.http.Context;
 import org.junit.jupiter.api.Test;
@@ -34,9 +34,9 @@ class HandlersTest {
 
         JsonNode node = Json.MAPPER.readTree(resultCaptor.getValue());
         assertTrue(node.path("ok").asBoolean());
-        assertEquals("AIProxyOauth", node.path("service").asText());
+        assertEquals("AIProxyOauth", node.path("service").asString());
         assertEquals(4, node.path("uptime_seconds").asLong());
-        assertEquals("3.0.2", node.path("version").asText());
+        assertEquals("3.0.3", node.path("version").asString());
         assertFalse(node.has("auth_file"));
         assertFalse(node.has("api_keys"));
         assertFalse(node.has("models"));
@@ -55,8 +55,8 @@ class HandlersTest {
         verify(ctx).result(resultCaptor.capture());
         
         JsonNode node = Json.MAPPER.readTree(resultCaptor.getValue());
-        assertEquals("list", node.get("object").asText());
-        assertEquals("gpt-5", node.get("data").get(0).get("id").asText());
+        assertEquals("list", node.get("object").asString());
+        assertEquals("gpt-5", node.get("data").get(0).get("id").asString());
     }
 
     @Test

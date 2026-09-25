@@ -1,6 +1,6 @@
 package com.aiproxyoauth.auth;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.aiproxyoauth.util.Json;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -107,6 +107,6 @@ class AuthLoaderTest {
         // Verify file was updated
         String updatedContent = Files.readString(authFile);
         ObjectNode updatedJson = (ObjectNode) Json.MAPPER.readTree(updatedContent);
-        assertEquals("new-access-token", updatedJson.get("tokens").get("access_token").asText());
+        assertEquals("new-access-token", updatedJson.get("tokens").get("access_token").asString());
     }
 }

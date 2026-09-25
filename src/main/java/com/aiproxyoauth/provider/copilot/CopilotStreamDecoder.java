@@ -5,7 +5,7 @@ import java.util.*;
 import com.aiproxyoauth.provider.ProviderError;
 import com.aiproxyoauth.provider.anthropic.IncrementalSseFramer;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 public final class CopilotStreamDecoder implements CompletionStreamDecoder {
     private final boolean responses;
     private final IncrementalSseFramer framer = new IncrementalSseFramer(4 * 1024 * 1024);
@@ -40,8 +40,8 @@ public final class CopilotStreamDecoder implements CompletionStreamDecoder {
     private void start(JsonNode node, List<CompletionEvent> out) {
         if (started) return;
         started = true;
-        out.add(new CompletionEvent.Started(node.path("id").asText("copilot-" + UUID.randomUUID()),
-                node.path("model").asText("copilot"), Math.max(0, node.path("created_at").asLong(node.path("created").asLong(System.currentTimeMillis() / 1000)))));
+        out.add(new CompletionEvent.Started(node.path("id").asString("copilot-" + UUID.randomUUID()),
+                node.path("model").asString("copilot"), Math.max(0, node.path("created_at").asLong(node.path("created").asLong(System.currentTimeMillis() / 1000)))));
     }
     private int block(String key, BlockType type, String id, String name, List<CompletionEvent> out) {
         Integer existing = blocks.get(key);
@@ -62,16 +62,16 @@ public final class CopilotStreamDecoder implements CompletionStreamDecoder {
         for (JsonNode choice : node.path("choices")) {
             if (choice.path("index").asInt() != 0) { fail(out); return; }
             JsonNode delta = choice.path("delta");
-            text("text", BlockType.TEXT, delta.path("content").asText(""), out);
-            text("reasoning", BlockType.REASONING, delta.path("reasoning_content").asText(""), out);
-            text("refusal", BlockType.REFUSAL, delta.path("refusal").asText(""), out);
+            text("text", BlockType.TEXT, delta.path("content").asString(""), out);
+            text("reasoning", BlockType.REASONING, delta.path("reasoning_content").asString(""), out);
+            text("refusal", BlockType.REFUSAL, delta.path("refusal").asString(""), out);
             for (JsonNode call : delta.path("tool_calls")) {
                 String key = "tool/" + call.path("index").asInt();
-                int index = block(key, BlockType.TOOL_CALL, call.path("id").asText(null), call.path("function").path("name").asText(null), out);
-                String args = call.path("function").path("arguments").asText("");
+                int index = block(key, BlockType.TOOL_CALL, call.path("id").asString(null), call.path("function").path("name").asString(null), out);
+                String args = call.path("function").path("arguments").asString("");
                 if (!args.isEmpty()) { hasData.add(index); out.add(new CompletionEvent.ToolCallArgumentsDelta(index, args)); }
             }
-            if (choice.hasNonNull("finish_reason")) reason = switch (choice.path("finish_reason").asText()) {
+            if (choice.hasNonNull("finish_reason")) reason = switch (choice.path("finish_reason").asString()) {
                 case "stop" -> FinishReason.STOP;
                 case "tool_calls", "function_call" -> FinishReason.TOOL_CALLS;
                 case "length" -> FinishReason.LENGTH;
@@ -82,7 +82,7 @@ public final class CopilotStreamDecoder implements CompletionStreamDecoder {
         if (node.path("usage").isObject()) usage(node.path("usage"), out, false);
     }
     private void response(JsonNode node, List<CompletionEvent> out) {
-        String type = node.path("type").asText();
+        String type = node.path("type").asString();
         if (type.equals("response.created") || type.equals("response.in_progress")) { start(node.path("response"), out); return; }
         if (type.equals("response.failed") || type.equals("error")) { fail(out); return; }
         if (!started) { fail(out); return; }
@@ -91,21 +91,21 @@ public final class CopilotStreamDecoder implements CompletionStreamDecoder {
         switch (type) {
             case "response.output_item.added" -> {
                 JsonNode item = node.path("item");
-                if (item.path("type").asText().equals("function_call")) block(itemIndex + "/tool", BlockType.TOOL_CALL,
-                        item.path("call_id").asText(), item.path("name").asText(), out);
+                if (item.path("type").asString().equals("function_call")) block(itemIndex + "/tool", BlockType.TOOL_CALL,
+                        item.path("call_id").asString(), item.path("name").asString(), out);
             }
-            case "response.output_text.delta" -> text(key + "/text", BlockType.TEXT, node.path("delta").asText(), out);
-            case "response.refusal.delta" -> text(key + "/refusal", BlockType.REFUSAL, node.path("delta").asText(), out);
-            case "response.reasoning_text.delta", "response.reasoning_summary_text.delta" -> text(key + "/reasoning", BlockType.REASONING, node.path("delta").asText(), out);
+            case "response.output_text.delta" -> text(key + "/text", BlockType.TEXT, node.path("delta").asString(), out);
+            case "response.refusal.delta" -> text(key + "/refusal", BlockType.REFUSAL, node.path("delta").asString(), out);
+            case "response.reasoning_text.delta", "response.reasoning_summary_text.delta" -> text(key + "/reasoning", BlockType.REASONING, node.path("delta").asString(), out);
             case "response.function_call_arguments.delta" -> {
                 Integer index = blocks.get(itemIndex + "/tool");
                 if (index == null) { fail(out); return; }
-                hasData.add(index); out.add(new CompletionEvent.ToolCallArgumentsDelta(index, node.path("delta").asText()));
+                hasData.add(index); out.add(new CompletionEvent.ToolCallArgumentsDelta(index, node.path("delta").asString()));
             }
             case "response.function_call_arguments.done" -> {
                 Integer index = blocks.get(itemIndex + "/tool");
                 if (index != null && !hasData.contains(index)) {
-                    hasData.add(index); out.add(new CompletionEvent.ToolCallArgumentsDelta(index, node.path("arguments").asText()));
+                    hasData.add(index); out.add(new CompletionEvent.ToolCallArgumentsDelta(index, node.path("arguments").asString()));
                 }
             }
             case "response.output_item.done" -> {
@@ -126,16 +126,16 @@ public final class CopilotStreamDecoder implements CompletionStreamDecoder {
         }
     }
     private void snapshot(int itemIndex, JsonNode item, List<CompletionEvent> out) {
-        if (item.path("type").asText().equals("function_call")) {
-            int index = block(itemIndex + "/tool", BlockType.TOOL_CALL, item.path("call_id").asText(), item.path("name").asText(), out);
-            if (hasData.add(index)) out.add(new CompletionEvent.ToolCallArgumentsDelta(index, item.path("arguments").asText()));
-        } else if (item.path("type").asText().equals("message")) {
+        if (item.path("type").asString().equals("function_call")) {
+            int index = block(itemIndex + "/tool", BlockType.TOOL_CALL, item.path("call_id").asString(), item.path("name").asString(), out);
+            if (hasData.add(index)) out.add(new CompletionEvent.ToolCallArgumentsDelta(index, item.path("arguments").asString()));
+        } else if (item.path("type").asString().equals("message")) {
             int partIndex = 0;
             for (JsonNode part : item.path("content")) {
-                boolean refusal = part.path("type").asText().equals("refusal");
+                boolean refusal = part.path("type").asString().equals("refusal");
                 String key = itemIndex + "/" + partIndex++ + (refusal ? "/refusal" : "/text");
                 if (!blocks.containsKey(key)) text(key, refusal ? BlockType.REFUSAL : BlockType.TEXT,
-                        part.path(refusal ? "refusal" : "text").asText(), out);
+                        part.path(refusal ? "refusal" : "text").asString(), out);
             }
         }
     }

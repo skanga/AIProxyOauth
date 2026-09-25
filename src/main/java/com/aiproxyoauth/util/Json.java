@@ -1,6 +1,6 @@
 package com.aiproxyoauth.util;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Shared Jackson ObjectMapper instance. All packages that need JSON

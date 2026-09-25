@@ -14,8 +14,8 @@ import com.aiproxyoauth.provider.chat.ChatRequest;
 import com.aiproxyoauth.provider.stream.*;
 import com.aiproxyoauth.state.ResponsesState;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -85,8 +85,8 @@ public final class CopilotBackend implements ChatBackend, ResponsesBackend {
             validateFields(expanded, responses);
             if (responses) {
                 state = stateFor(context);
-                if (expanded.path("input").isTextual()) {
-                    String text = expanded.path("input").asText();
+                if (expanded.path("input").isString()) {
+                    String text = expanded.path("input").asString();
                     expanded.putArray("input").addObject().put("type", "message").put("role", "user").put("content", text);
                 }
                 for (JsonNode item : expanded.path("input")) {
@@ -143,7 +143,7 @@ public final class CopilotBackend implements ChatBackend, ResponsesBackend {
                 ObjectNode result = output.result();
                 CompletionEvent.UsageSnapshot tokens = output.tokens();
                 usage.record(context.attribute("keyName"), tokens.inputTokens(), tokens.outputTokens());
-                String status = result.path("status").asText();
+                String status = result.path("status").asString();
                 if (responses && ("completed".equals(status) || "incomplete".equals(status))) {
                     state.rememberResponse(result, expanded);
                     context.attribute("completedResponse", result);
@@ -182,12 +182,12 @@ public final class CopilotBackend implements ChatBackend, ResponsesBackend {
         Set<String> supported = responses
                 ? Set.of("model", "input", "instructions", "tools", "tool_choice", "temperature", "top_p", "max_output_tokens", "stream", "reasoning", "stop", "store", "previous_response_id", "metadata")
                 : Set.of("model", "messages", "tools", "tool_choice", "temperature", "top_p", "max_tokens", "max_completion_tokens", "stream", "stream_options", "reasoning_effort", "stop", "user", "metadata", "n");
-        body.fieldNames().forEachRemaining(field -> {
+        body.propertyNames().forEach(field -> {
             if (!supported.contains(field)) throw new IllegalArgumentException("Unsupported Copilot request field: " + field);
         });
         if (body.has("stream") && !body.path("stream").isBoolean()) throw new IllegalArgumentException("stream must be a boolean");
         if (body.has("store") && !body.path("store").isBoolean()) throw new IllegalArgumentException("store must be a boolean");
-        if (body.hasNonNull("previous_response_id") && !body.path("previous_response_id").isTextual()) throw new IllegalArgumentException("previous_response_id must be a string");
+        if (body.hasNonNull("previous_response_id") && !body.path("previous_response_id").isString()) throw new IllegalArgumentException("previous_response_id must be a string");
         if (body.has("n") && (!body.path("n").isIntegralNumber() || body.path("n").asInt() != 1)) throw new IllegalArgumentException("Copilot supports n=1 only");
     }
 

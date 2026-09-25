@@ -1,6 +1,6 @@
 package com.aiproxyoauth.model;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import com.aiproxyoauth.transport.CodexHttpClient;
 import com.aiproxyoauth.util.CollectionUtils;
 import com.aiproxyoauth.util.Json;
@@ -157,8 +157,8 @@ public class ModelResolver {
         List<String> models = new ArrayList<>();
         for (JsonNode model : modelsNode) {
             JsonNode slug = model.get("slug");
-            if (slug != null && slug.isTextual() && !slug.asText().isEmpty()) {
-                models.add(slug.asText());
+            if (slug != null && slug.isString() && !slug.asString().isEmpty()) {
+                models.add(slug.asString());
             }
         }
 
@@ -249,8 +249,8 @@ public class ModelResolver {
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 JsonNode parsed = Json.MAPPER.readTree(response.body());
                 JsonNode version = parsed.get("version");
-                if (version != null && version.isTextual()) {
-                    return normalizeVersion(version.asText());
+                if (version != null && version.isString()) {
+                    return normalizeVersion(version.asString());
                 }
             }
         } catch (Exception ignored) {
@@ -269,14 +269,14 @@ public class ModelResolver {
         try {
             JsonNode parsed = Json.MAPPER.readTree(bodyText);
             JsonNode detail = parsed.get("detail");
-            if (detail != null && detail.isTextual() && !detail.asText().isEmpty()) {
-                return detail.asText();
+            if (detail != null && detail.isString() && !detail.asString().isEmpty()) {
+                return detail.asString();
             }
             JsonNode error = parsed.get("error");
             if (error != null && error.isObject()) {
                 JsonNode msg = error.get("message");
-                if (msg != null && msg.isTextual()) {
-                    return msg.asText();
+                if (msg != null && msg.isString()) {
+                    return msg.asString();
                 }
             }
         } catch (Exception ignored) {

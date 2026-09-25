@@ -4,8 +4,8 @@ import com.aiproxyoauth.provider.stream.BlockType;
 import com.aiproxyoauth.provider.stream.CompletionEvent;
 import com.aiproxyoauth.provider.stream.FinishReason;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.LinkedHashMap;
 import java.util.List;

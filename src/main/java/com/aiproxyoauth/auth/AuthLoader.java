@@ -1,7 +1,7 @@
 package com.aiproxyoauth.auth;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 import com.aiproxyoauth.config.ServerConfig;
 import com.aiproxyoauth.util.Json;
 import com.aiproxyoauth.util.JwtParser;
@@ -281,6 +281,6 @@ public final class AuthLoader {
     private static String getStringField(JsonNode node, String field) {
         if (node == null || !node.has(field)) return null;
         JsonNode value = node.get(field);
-        return value.isTextual() && !value.asText().isEmpty() ? value.asText() : null;
+        return value.isString() && !value.asString().isEmpty() ? value.asString() : null;
     }
 }

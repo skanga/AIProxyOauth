@@ -4,7 +4,7 @@ import com.aiproxyoauth.provider.ProviderId;
 import com.aiproxyoauth.provider.ProviderModel;
 import com.aiproxyoauth.provider.ProviderRouter;
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -35,14 +35,14 @@ class AnthropicNativeRequestTest {
         AnthropicNativeRequest.Prepared prepared =
                 AnthropicNativeRequest.prepare(input, router, profile);
 
-        assertEquals("claude-sonnet-4-5", prepared.body().path("model").asText());
+        assertEquals("claude-sonnet-4-5", prepared.body().path("model").asString());
         assertEquals(99, prepared.body().path("max_tokens").asInt());
-        assertEquals("priority", prepared.body().path("service_tier").asText());
+        assertEquals("priority", prepared.body().path("service_tier").asString());
         assertTrue(prepared.body().path("future_field").path("enabled").asBoolean());
         assertEquals(profile.oauthSystemPreamble(),
-                prepared.body().path("system").get(0).path("text").asText());
+                prepared.body().path("system").get(0).path("text").asString());
         assertEquals("client system",
-                prepared.body().path("system").get(1).path("text").asText());
+                prepared.body().path("system").get(1).path("text").asString());
         assertEquals(false, prepared.stream());
     }
 
@@ -57,10 +57,10 @@ class AnthropicNativeRequestTest {
         AnthropicNativeRequest.Prepared prepared =
                 AnthropicNativeRequest.prepare(input, router, profile);
 
-        assertEquals("claude-future", prepared.body().path("model").asText());
+        assertEquals("claude-future", prepared.body().path("model").asString());
         assertEquals(2, prepared.body().path("system").size());
         assertEquals("ephemeral", prepared.body().path("system").get(1)
-                .path("cache_control").path("type").asText());
+                .path("cache_control").path("type").asString());
         assertEquals(false, prepared.stream());
     }
 

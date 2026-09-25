@@ -109,7 +109,7 @@ class AnthropicStreamDecoderTest {
                 ((CompletionEvent.BlockStarted) events.get(1)).type());
         assertEquals("value",
                 ((CompletionEvent.RedactedReasoning) events.get(2))
-                        .data().path("opaque").asText());
+                        .data().path("opaque").asString());
     }
 
     @Test

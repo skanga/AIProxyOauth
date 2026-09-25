@@ -1,6 +1,6 @@
 package com.aiproxyoauth.util;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 
 import java.util.Base64;
 
@@ -39,8 +39,8 @@ public final class JwtParser {
         JsonNode authClaim = claims.get("https://api.openai.com/auth");
         if (authClaim != null && authClaim.isObject()) {
             JsonNode accountId = authClaim.get("chatgpt_account_id");
-            if (accountId != null && accountId.isTextual() && !accountId.asText().isEmpty()) {
-                return accountId.asText();
+            if (accountId != null && accountId.isString() && !accountId.asString().isEmpty()) {
+                return accountId.asString();
             }
         }
         return null;

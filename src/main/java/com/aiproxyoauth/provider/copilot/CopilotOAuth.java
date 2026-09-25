@@ -3,7 +3,8 @@ package com.aiproxyoauth.provider.copilot;
 import com.aiproxyoauth.config.EffectiveConfig;
 import com.aiproxyoauth.util.Json;
 import com.aiproxyoauth.transport.BoundedBodyReader;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.URI;
@@ -20,9 +21,9 @@ public final class CopilotOAuth {
             throws IOException, InterruptedException {
         var start = Json.MAPPER.createObjectNode().put("client_id", clientId);
         JsonNode attempt = exchange.post("/login/device/code", start);
-        String code = attempt.path("device_code").asText();
-        String userCode = attempt.path("user_code").asText();
-        String verification = attempt.path("verification_uri").asText();
+        String code = attempt.path("device_code").asString();
+        String userCode = attempt.path("user_code").asString();
+        String verification = attempt.path("verification_uri").asString();
         long interval = attempt.path("interval").asLong(-1);
         long lifetime = attempt.path("expires_in").asLong(-1);
         if (code.isBlank() || !userCode.matches("[A-Z0-9-]{4,32}")
@@ -39,8 +40,8 @@ public final class CopilotOAuth {
             JsonNode result = exchange.post("/login/oauth/access_token", Json.MAPPER.createObjectNode()
                     .put("client_id", clientId).put("device_code", code)
                     .put("grant_type", "urn:ietf:params:oauth:grant-type:device_code"));
-            if (result.path("access_token").isTextual() && !result.path("access_token").asText().isBlank()) return result;
-            switch (result.path("error").asText()) {
+            if (result.path("access_token").isString() && !result.path("access_token").asString().isBlank()) return result;
+            switch (result.path("error").asString()) {
                 case "authorization_pending" -> { }
                 case "slow_down" -> interval += 5;
                 default -> throw new IOException("Copilot authorization denied, expired, or failed");
@@ -61,7 +62,7 @@ public final class CopilotOAuth {
                 byte[] bytes = BoundedBodyReader.read(response, 64 * 1024);
                 if (response.statusCode() != 200) throw new IOException("Copilot authorization returned HTTP " + response.statusCode());
                 try { return Json.MAPPER.readTree(bytes); }
-                catch (IOException error) { throw new IOException("Invalid Copilot authorization response"); }
+                catch (JacksonException error) { throw new IOException("Invalid Copilot authorization response"); }
             }, out, Thread::sleep, System::nanoTime);
             new CopilotCredentials(config).save(tokens);
             out.println("Copilot login saved to " + config.oauthFile());

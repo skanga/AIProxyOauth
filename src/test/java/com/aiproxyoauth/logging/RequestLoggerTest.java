@@ -1,7 +1,7 @@
 package com.aiproxyoauth.logging;
 
 import com.aiproxyoauth.util.Json;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import io.javalin.http.Context;
 import io.javalin.http.HandlerType;
 import org.junit.jupiter.api.Test;
@@ -39,14 +39,14 @@ class RequestLoggerTest {
         logger.logInbound("req_123", ctx, "{\"input\":\"hello\"}");
 
         JsonNode entry = readOnlyJsonFile(logDir);
-        assertEquals("req_123", entry.path("request_id").asText());
-        assertFalse(entry.path("timestamp").asText().isBlank());
-        assertEquals("inbound", entry.path("stage").asText());
-        assertEquals("POST", entry.path("method").asText());
-        assertEquals("/v1/chat/completions", entry.path("path").asText());
+        assertEquals("req_123", entry.path("request_id").asString());
+        assertFalse(entry.path("timestamp").asString().isBlank());
+        assertEquals("inbound", entry.path("stage").asString());
+        assertEquals("POST", entry.path("method").asString());
+        assertEquals("/v1/chat/completions", entry.path("path").asString());
         assertEquals(202, entry.path("status").asInt());
-        assertEquals("JUnit", entry.path("headers").path("User-Agent").asText());
-        assertEquals("{\"input\":\"hello\"}", entry.path("body").asText());
+        assertEquals("JUnit", entry.path("headers").path("User-Agent").asString());
+        assertEquals("{\"input\":\"hello\"}", entry.path("body").asString());
         assertFalse(entry.path("truncated").asBoolean());
     }
 
@@ -68,16 +68,16 @@ class RequestLoggerTest {
         ), "{}");
 
         JsonNode headers = readOnlyJsonFile(tempDir).path("headers");
-        assertEquals("[REDACTED]", headers.path("authorization").asText());
-        assertEquals("[REDACTED]", headers.path("Proxy-Authorization").asText());
-        assertEquals("[REDACTED]", headers.path("X-Api-Key").asText());
-        assertEquals("[REDACTED]", headers.path("OpenAI-Api-Key").asText());
-        assertEquals("[REDACTED]", headers.path("Cookie").asText());
-        assertEquals("[REDACTED]", headers.path("X-Session-Token").asText());
-        assertEquals("[REDACTED]", headers.path("X-Client-Secret").asText());
-        assertEquals("application/json", headers.path("Content-Type").asText());
-        assertEquals("application/json", headers.path("Accept").asText());
-        assertEquals("JUnit", headers.path("User-Agent").asText());
+        assertEquals("[REDACTED]", headers.path("authorization").asString());
+        assertEquals("[REDACTED]", headers.path("Proxy-Authorization").asString());
+        assertEquals("[REDACTED]", headers.path("X-Api-Key").asString());
+        assertEquals("[REDACTED]", headers.path("OpenAI-Api-Key").asString());
+        assertEquals("[REDACTED]", headers.path("Cookie").asString());
+        assertEquals("[REDACTED]", headers.path("X-Session-Token").asString());
+        assertEquals("[REDACTED]", headers.path("X-Client-Secret").asString());
+        assertEquals("application/json", headers.path("Content-Type").asString());
+        assertEquals("application/json", headers.path("Accept").asString());
+        assertEquals("JUnit", headers.path("User-Agent").asString());
     }
 
     @Test
@@ -90,11 +90,11 @@ class RequestLoggerTest {
         ), "{\"error\":\"rate limited\"}");
 
         JsonNode entry = readOnlyJsonFile(tempDir);
-        assertEquals("upstream_response", entry.path("stage").asText());
+        assertEquals("upstream_response", entry.path("stage").asString());
         assertEquals(429, entry.path("status").asInt());
-        assertEquals("[REDACTED]", entry.path("headers").path("Set-Cookie").get(0).asText());
-        assertEquals("[REDACTED]", entry.path("headers").path("Set-Cookie").get(1).asText());
-        assertEquals("application/json", entry.path("headers").path("Content-Type").get(0).asText());
+        assertEquals("[REDACTED]", entry.path("headers").path("Set-Cookie").get(0).asString());
+        assertEquals("[REDACTED]", entry.path("headers").path("Set-Cookie").get(1).asString());
+        assertEquals("application/json", entry.path("headers").path("Content-Type").get(0).asString());
     }
 
     @Test
@@ -106,7 +106,7 @@ class RequestLoggerTest {
 
         JsonNode entry = readOnlyJsonFile(tempDir);
         assertTrue(entry.path("truncated").asBoolean());
-        assertTrue(entry.path("body").asText().length() < body.length());
+        assertTrue(entry.path("body").asString().length() < body.length());
     }
 
     @Test
@@ -124,24 +124,24 @@ class RequestLoggerTest {
 
         logger.logUpstreamRequest("req_oauth", "POST", "/v1/messages", Map.of(), body);
 
-        JsonNode loggedBody = Json.MAPPER.readTree(readOnlyJsonFile(tempDir).path("body").asText());
-        assertEquals("[REDACTED]", loggedBody.path("access_token").asText());
-        assertEquals("[REDACTED]", loggedBody.path("nested").get(0).path("refresh_token").asText());
-        assertEquals("[REDACTED]", loggedBody.path("nested").get(0).path("code_verifier").asText());
-        assertEquals("[REDACTED]", loggedBody.path("nested").get(1).path("code").asText());
+        JsonNode loggedBody = Json.MAPPER.readTree(readOnlyJsonFile(tempDir).path("body").asString());
+        assertEquals("[REDACTED]", loggedBody.path("access_token").asString());
+        assertEquals("[REDACTED]", loggedBody.path("nested").get(0).path("refresh_token").asString());
+        assertEquals("[REDACTED]", loggedBody.path("nested").get(0).path("code_verifier").asString());
+        assertEquals("[REDACTED]", loggedBody.path("nested").get(1).path("code").asString());
         assertEquals(
                 "[REDACTED]",
-                loggedBody.path("nested").get(1).path("reasoning_signature").asText()
+                loggedBody.path("nested").get(1).path("reasoning_signature").asString()
         );
         assertEquals(
                 "[REDACTED]",
-                loggedBody.path("nested").get(2).path("data").asText()
+                loggedBody.path("nested").get(2).path("data").asString()
         );
         assertEquals(
                 "[REDACTED]",
-                loggedBody.path("nested").get(3).path("redacted_data").asText()
+                loggedBody.path("nested").get(3).path("redacted_data").asString()
         );
-        assertEquals("preserved", loggedBody.path("prompt").asText());
+        assertEquals("preserved", loggedBody.path("prompt").asString());
     }
 
     @Test
@@ -157,7 +157,7 @@ class RequestLoggerTest {
                 "refresh_token=secret-that-must-not-appear"
         );
 
-        assertEquals("[REDACTED]", readOnlyJsonFile(tempDir).path("body").asText());
+        assertEquals("[REDACTED]", readOnlyJsonFile(tempDir).path("body").asString());
     }
 
     private static JsonNode readOnlyJsonFile(Path logDir) throws Exception {
